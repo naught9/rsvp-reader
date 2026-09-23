@@ -1,0 +1,6 @@
+.DS_Store
+rsvp
+/rsvp-reader
+epubs/
+*.test
+*.out

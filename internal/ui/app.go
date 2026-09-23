@@ -1,0 +1,765 @@
+package ui
+
+import (
+	"fmt"
+	"os"
+	"time"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
+
+	"rsvp-reader/internal/epub"
+	"rsvp-reader/internal/reader"
+	"rsvp-reader/internal/store"
+)
+
+// App wires the book model, playback state, and Fyne widgets.
+type App struct {
+	fyneApp fyne.App
+	win     fyne.Window
+	db      *store.Store
+
+	book   *epub.Book
+	player *reader.Player
+	cliArg string
+
+	uidToItem map[string]*epub.TOCItem
+	itemToUID map[*epub.TOCItem]string
+	topUIDs   []string
+
+	titleLabel    *widget.Label
+	tree          *widget.Tree
+	orp           *ORPWidget
+	playBtn       *widget.Button
+	prevBtn       *widget.Button
+	nextBtn       *widget.Button
+	wpmSlider     *widget.Slider
+	wpmLabel      *widget.Label
+	progress      *widget.ProgressBar
+	progressLabel *widget.Label
+	sectionLabel  *widget.Label
+	statusLabel   *widget.Label
+	emptyScreen   fyne.CanvasObject
+	readerScreen  fyne.CanvasObject
+	recentBox     *fyne.Container
+	loadingBar    *widget.ProgressBarInfinite
+	loadingLabel  *widget.Label
+	loadingScreen fyne.CanvasObject
+	root          *fyne.Container
+
+	tickTimer   *time.Timer
+	importGen   int
+	syncingTree bool
+	contentsOn  bool
+	lastSave    time.Time
+}
+
+// New builds the application. cliArg is an optional EPUB path.
+func New(fyneApp fyne.App, db *store.Store, cliArg string) *App {
+	a := &App{fyneApp: fyneApp, db: db, cliArg: cliArg, contentsOn: true}
+	a.win = fyneApp.NewWindow("RSVP Reader")
+	a.applyThemePref()
+	a.buildWidgets()
+	a.buildLayout()
+	a.buildMenu()
+	a.buildShortcuts()
+	a.win.SetCloseIntercept(a.onClose)
+	a.win.Resize(fyne.NewSize(900, 650))
+	return a
+}
+
+// Show displays the window and opens the CLI book, if any.
+func (a *App) Show() {
+	a.win.Show()
+	if a.cliArg != "" {
+		a.openBook(a.cliArg)
+	}
+}
+
+// ShowAndRun displays the window and runs the event loop.
+func (a *App) ShowAndRun() {
+	if a.cliArg != "" {
+		a.openBook(a.cliArg)
+	}
+	a.win.ShowAndRun()
+}
+
+func (a *App) prefs() fyne.Preferences { return a.fyneApp.Preferences() }
+
+func (a *App) prefWPM() int        { return a.prefs().IntWithFallback("wpm", reader.DefaultWPM) }
+func (a *App) prefHighlight() bool { return a.prefs().BoolWithFallback("highlight", true) }
+func (a *App) prefFontSize() float64 {
+	return a.prefs().FloatWithFallback("fontSize", 64)
+}
+
+// ---------- construction ----------
+
+func (a *App) buildWidgets() {
+	a.titleLabel = widget.NewLabel("RSVP Reader")
+	a.titleLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+	a.orp = NewORPWidget()
+	a.orp.Highlight = a.prefHighlight()
+	a.orp.FontSize = float32(a.prefFontSize())
+
+	a.playBtn = widget.NewButton("Play", a.togglePlay)
+	a.playBtn.Disable()
+
+	prevBtn := widget.NewButton("‹", func() { a.step(-1) })
+	nextBtn := widget.NewButton("›", func() { a.step(1) })
+	prevBtn.Disable()
+	nextBtn.Disable()
+	a.prevBtn, a.nextBtn = prevBtn, nextBtn
+
+	a.wpmSlider = widget.NewSlider(reader.MinWPM, reader.MaxWPM)
+	a.wpmSlider.Step = reader.StepWPM
+	a.wpmSlider.SetValue(float64(reader.SnapWPM(a.prefWPM())))
+	a.wpmSlider.OnChanged = func(v float64) {
+		wpm := reader.SnapWPM(int(v + 0.5))
+		if a.player != nil {
+			a.player.SetWPM(wpm)
+		}
+		a.prefs().SetInt("wpm", wpm)
+		a.updateWPMLabel()
+	}
+	a.wpmLabel = widget.NewLabel("")
+	a.updateWPMLabel()
+
+	a.progress = widget.NewProgressBar()
+	a.progressLabel = widget.NewLabel("No book open")
+	a.sectionLabel = widget.NewLabel("")
+	a.sectionLabel.TextStyle = fyne.TextStyle{Bold: true}
+	a.statusLabel = widget.NewLabel("")
+	a.statusLabel.Wrapping = fyne.TextWrapWord
+
+	a.tree = widget.NewTree(
+		func(uid string) []string { return a.childUIDs(uid) },
+		func(uid string) bool { return a.isBranch(uid) },
+		func(bool) fyne.CanvasObject { return widget.NewLabel("") },
+		func(uid string, _ bool, o fyne.CanvasObject) {
+			lbl := o.(*widget.Label)
+			it := a.uidToItem[uid]
+			if it == nil {
+				lbl.SetText("")
+				return
+			}
+			text := it.Label
+			if it.StartWord == nil {
+				if it.Unavailable != "" {
+					text += " (unavailable)"
+				} else if len(it.Children) == 0 {
+					text += " (unavailable)"
+				}
+			}
+			lbl.SetText(text)
+		},
+	)
+	a.tree.OnSelected = a.onTOCSelected
+
+	a.loadingBar = widget.NewProgressBarInfinite()
+	a.loadingLabel = widget.NewLabel("Importing…")
+
+	a.recentBox = container.NewVBox()
+	a.refreshRecent()
+}
+
+func (a *App) topBar() *fyne.Container {
+	openBtn := widget.NewButton("Open EPUB", a.showOpenDialog)
+	toggleBtn := widget.NewButton("Contents", a.toggleContents)
+	settingsBtn := widget.NewButton("Settings", a.showSettings)
+	return container.NewBorder(nil, nil, nil,
+		container.NewHBox(toggleBtn, settingsBtn, openBtn), a.titleLabel)
+}
+
+func (a *App) bottomBar() *fyne.Container {
+	controls := container.NewHBox(a.prevBtn, a.playBtn, a.nextBtn,
+		widget.NewLabel("Speed"), a.wpmSlider, a.wpmLabel)
+	return container.NewVBox(a.sectionLabel, controls, a.progress, a.progressLabel, a.statusLabel)
+}
+
+func (a *App) readerCenter() fyne.CanvasObject {
+	if a.contentsOn {
+		// Tree scrolls internally; do not wrap it in another scroller.
+		return container.NewHSplit(a.tree, container.NewCenter(a.orp))
+	}
+	return container.NewCenter(a.orp)
+}
+
+func (a *App) buildLayout() {
+	a.readerScreen = container.NewBorder(a.topBar(), a.bottomBar(), nil, nil, a.readerCenter())
+
+	emptyTitle := widget.NewLabel("RSVP Reader")
+	emptyTitle.TextStyle = fyne.TextStyle{Bold: true}
+	emptyOpen := widget.NewButton("Open EPUB", a.showOpenDialog)
+	a.emptyScreen = container.NewCenter(container.NewVBox(
+		emptyTitle, widget.NewLabel("One word at a time, at a fixed focal point."),
+		emptyOpen, widget.NewLabel("Recent books:"), a.recentBox,
+	))
+
+	cancelBtn := widget.NewButton("Cancel", a.cancelImport)
+	a.loadingScreen = container.NewCenter(container.NewVBox(
+		a.loadingLabel, a.loadingBar, cancelBtn,
+	))
+
+	stack := container.NewStack(a.emptyScreen, a.readerScreen, a.loadingScreen)
+	a.showScreen(a.emptyScreen)
+	a.root = stack
+	a.win.SetContent(stack)
+}
+
+func (a *App) showScreen(s fyne.CanvasObject) {
+	a.emptyScreen.Hide()
+	a.readerScreen.Hide()
+	a.loadingScreen.Hide()
+	s.Show()
+}
+
+// ---------- menus, shortcuts, keys ----------
+
+func (a *App) buildMenu() {
+	openItem := fyne.NewMenuItem("Open EPUB…", a.showOpenDialog)
+	openItem.Shortcut = &desktop.CustomShortcut{KeyName: fyne.KeyO, Modifier: fyne.KeyModifierSuper}
+	a.win.SetMainMenu(fyne.NewMainMenu(fyne.NewMenu("File", openItem)))
+}
+
+func (a *App) buildShortcuts() {
+	c := a.win.Canvas()
+	c.AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyO, Modifier: fyne.KeyModifierSuper},
+		func(fyne.Shortcut) { a.showOpenDialog() })
+	c.SetOnTypedKey(func(e *fyne.KeyEvent) {
+		switch e.Name {
+		case fyne.KeySpace:
+			if _, ok := c.Focused().(*widget.Entry); ok {
+				return
+			}
+			a.togglePlay()
+		case fyne.KeyLeft:
+			a.step(-1)
+		case fyne.KeyRight:
+			a.step(1)
+		case fyne.KeyUp:
+			a.bumpWPM(reader.StepWPM)
+		case fyne.KeyDown:
+			a.bumpWPM(-reader.StepWPM)
+		case fyne.KeyEscape:
+			c.Unfocus()
+		}
+	})
+}
+
+// ---------- book import ----------
+
+func (a *App) showOpenDialog() {
+	fd := dialog.NewFileOpen(func(rc fyne.URIReadCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, a.win)
+			return
+		}
+		if rc == nil {
+			return
+		}
+		p := rc.URI().Path()
+		rc.Close()
+		a.openBook(p)
+	}, a.win)
+	fd.SetFilter(storage.NewExtensionFileFilter([]string{".epub"}))
+	fd.Show()
+}
+
+func (a *App) openBook(path string) {
+	if _, err := os.Stat(path); err != nil {
+		// Missing recent file: inform, drop it, retain no stale attempt.
+		if a.db != nil {
+			for _, p := range a.db.ListRecent() {
+				if p.Path == path {
+					_ = a.db.Remove(p.Fingerprint)
+				}
+			}
+			a.refreshRecent()
+		}
+		dialog.ShowInformation("File not found",
+			fmt.Sprintf("Could not open %s. It was removed from recent books.", path), a.win)
+		return
+	}
+	a.importGen++
+	gen := a.importGen
+	a.loadingLabel.SetText(fmt.Sprintf("Importing %s…", shortPath(path)))
+	a.showScreen(a.loadingScreen)
+	go func() {
+		book, err := epub.OpenFile(path)
+		fyne.Do(func() {
+			if gen != a.importGen {
+				return // cancelled or superseded
+			}
+			if err != nil {
+				a.showScreen(a.bookOrEmpty())
+				a.showOpenError(err)
+				return
+			}
+			a.setBook(book, path)
+			a.showScreen(a.readerScreen)
+		})
+	}()
+}
+
+func (a *App) bookOrEmpty() fyne.CanvasObject {
+	if a.book != nil {
+		return a.readerScreen
+	}
+	return a.emptyScreen
+}
+
+func (a *App) cancelImport() {
+	a.importGen++
+	a.showScreen(a.bookOrEmpty())
+}
+
+func (a *App) showOpenError(err error) {
+	msg := err.Error()
+	content := container.NewVBox(
+		widget.NewLabel("Could not open that file."),
+		widget.NewLabel(msg),
+		widget.NewLabel("EPUB 2/3 without DRM is supported; PDFs and fixed-layout books are not, yet."),
+	)
+	d := dialog.NewCustom("Open failed", "Close", content, a.win)
+	openAnother := widget.NewButton("Open Another File", func() {
+		d.Hide()
+		a.showOpenDialog()
+	})
+	content.Add(openAnother)
+	d.Show()
+}
+
+func shortPath(p string) string {
+	if len(p) > 60 {
+		return "…" + p[len(p)-59:]
+	}
+	return p
+}
+
+func (a *App) setBook(book *epub.Book, path string) {
+	a.cancelTick()
+	a.book = book
+	words := make([]string, len(book.Words))
+	for i, w := range book.Words {
+		words[i] = w.Text
+	}
+	wpm := reader.SnapWPM(a.prefWPM())
+	a.player = reader.NewPlayer(words, wpm)
+	a.player.SectionAt = func(idx int) string {
+		if s := book.SectionForWord(idx); s != nil {
+			return s.Label
+		}
+		return ""
+	}
+	a.wpmSlider.SetValue(float64(wpm))
+	a.buildTOCModel()
+	a.titleLabel.SetText(bookTitle(book))
+	if book.TOCWarning != "" {
+		a.setStatus(book.TOCWarning)
+	} else {
+		a.setStatus("")
+	}
+	// Restore last position and settings for this fingerprint.
+	if a.db != nil {
+		if p, ok := a.db.Lookup(book.Fingerprint); ok {
+			a.player.SetWPM(reader.ClampWPM(p.WPM))
+			a.wpmSlider.SetValue(float64(a.player.WPM()))
+			a.player.Seek(p.WordIndex)
+			a.updateWPMLabel()
+		}
+		_ = a.db.Save(store.Progress{
+			Fingerprint: book.Fingerprint, Path: path,
+			Title: book.Title, Creator: book.Creator,
+			WordIndex: a.player.Pos(), WPM: a.player.WPM(),
+		})
+		a.refreshRecent()
+	}
+	a.playBtn.Enable()
+	a.prevBtn.Enable()
+	a.nextBtn.Enable()
+	a.playBtn.SetText("Play")
+	a.refreshAll()
+}
+
+func bookTitle(b *epub.Book) string {
+	if b.Creator != "" {
+		return fmt.Sprintf("%s — %s", b.Title, b.Creator)
+	}
+	return b.Title
+}
+
+// ---------- TOC tree ----------
+
+func (a *App) buildTOCModel() {
+	a.uidToItem = map[string]*epub.TOCItem{}
+	a.itemToUID = map[*epub.TOCItem]string{}
+	a.topUIDs = nil
+	var assign func(items []*epub.TOCItem, prefix string)
+	assign = func(items []*epub.TOCItem, prefix string) {
+		for i, it := range items {
+			uid := fmt.Sprintf("%d", i)
+			if prefix != "" {
+				uid = prefix + "/" + uid
+			}
+			a.uidToItem[uid] = it
+			a.itemToUID[it] = uid
+			if prefix == "" {
+				a.topUIDs = append(a.topUIDs, uid)
+			}
+			assign(it.Children, uid)
+		}
+	}
+	if a.book != nil {
+		assign(a.book.TOC, "")
+	}
+	a.tree.Refresh()
+}
+
+func (a *App) childUIDs(uid string) []string {
+	if uid == "" {
+		return a.topUIDs
+	}
+	it := a.uidToItem[uid]
+	if it == nil {
+		return nil
+	}
+	var out []string
+	prefix := uid
+	for i := range it.Children {
+		out = append(out, fmt.Sprintf("%s/%d", prefix, i))
+	}
+	return out
+}
+
+func (a *App) isBranch(uid string) bool {
+	// The tree walk starts at the root UID "" and only descends when
+	// IsBranch reports true, so the root must count as a branch.
+	if uid == "" {
+		return true
+	}
+	it := a.uidToItem[uid]
+	return it != nil && len(it.Children) > 0
+}
+
+func (a *App) onTOCSelected(uid string) {
+	if a.syncingTree {
+		return
+	}
+	it := a.uidToItem[uid]
+	if it == nil || a.book == nil || a.player == nil {
+		return
+	}
+	if it.StartWord == nil {
+		if it.Unavailable != "" {
+			a.setStatus(fmt.Sprintf("%s — unavailable: %s.", it.Label, it.Unavailable))
+		} else if len(it.Children) > 0 {
+			a.setStatus(fmt.Sprintf("%s is a group heading; expand it and choose a section.", it.Label))
+		}
+		return
+	}
+	idx, ok := a.book.SeekTOC(it)
+	if !ok {
+		a.setStatus(fmt.Sprintf("%s points nowhere readable.", it.Label))
+		return
+	}
+	a.cancelTick()
+	a.player.Seek(idx)
+	a.playBtn.SetText("Play")
+	a.setStatus(fmt.Sprintf("Section: %s", it.Label))
+	a.refreshAll()
+	a.saveProgress(it.TargetHref)
+}
+
+func (a *App) toggleContents() {
+	// HSplit has no collapse; swap the reader center with/without the tree.
+	a.contentsOn = !a.contentsOn
+	a.readerScreen = container.NewBorder(a.topBar(), a.bottomBar(), nil, nil, a.readerCenter())
+	a.root.Objects[1] = a.readerScreen
+	a.root.Refresh()
+	if a.book != nil {
+		a.showScreen(a.readerScreen)
+	}
+	a.refreshAll()
+}
+
+// ---------- playback ----------
+
+func (a *App) togglePlay() {
+	if a.player == nil || a.book == nil {
+		return
+	}
+	now := time.Now()
+	if a.player.Playing() {
+		a.cancelTick()
+		a.player.Pause()
+		a.playBtn.SetText("Resume")
+		a.saveProgress("")
+	} else if a.player.Ended() {
+		a.player.Restart()
+		a.player.Play(now)
+		a.playBtn.SetText("Pause")
+		a.scheduleTick()
+	} else {
+		if a.player.Pos() == 0 && !a.wasResumed() {
+			a.player.Play(now)
+		} else {
+			a.player.Resume(now)
+		}
+		a.playBtn.SetText("Pause")
+		a.scheduleTick()
+	}
+	a.refreshAll()
+}
+
+func (a *App) wasResumed() bool { return a.lastSave.IsZero() == false || a.player.Pos() != 0 }
+
+func (a *App) step(dir int) {
+	if a.player == nil {
+		return
+	}
+	wasPlaying := a.player.Playing()
+	a.cancelTick()
+	a.player.Pause()
+	moved := false
+	if dir < 0 {
+		moved = a.player.StepPrev()
+	} else {
+		moved = a.player.StepNext()
+	}
+	if moved || !wasPlaying {
+		a.playBtn.SetText("Resume")
+	}
+	a.refreshAll()
+	if moved {
+		a.saveProgress("")
+	}
+}
+
+func (a *App) bumpWPM(delta int) {
+	if a.player == nil {
+		return
+	}
+	if delta > 0 {
+		a.player.StepUp()
+	} else {
+		a.player.StepDown()
+	}
+	a.wpmSlider.SetValue(float64(a.player.WPM()))
+	a.prefs().SetInt("wpm", a.player.WPM())
+	a.updateWPMLabel()
+	a.refreshProgress()
+	a.saveProgress("")
+}
+
+func (a *App) scheduleTick() {
+	a.cancelTick()
+	if a.player == nil || !a.player.Playing() {
+		return
+	}
+	d := time.Until(a.player.Deadline())
+	if d < 0 {
+		d = 0
+	}
+	a.tickTimer = time.AfterFunc(d, func() {
+		advanced := a.player.Tick(time.Now())
+		fyne.Do(func() {
+			if a.player == nil {
+				return
+			}
+			a.refreshAll()
+			if advanced {
+				a.maybePeriodicSave()
+			}
+			if a.player.Ended() {
+				a.onEnded()
+			} else {
+				a.scheduleTick()
+			}
+		})
+	})
+}
+
+func (a *App) cancelTick() {
+	if a.tickTimer != nil {
+		a.tickTimer.Stop()
+		a.tickTimer = nil
+	}
+}
+
+func (a *App) onEnded() {
+	a.playBtn.SetText("Restart")
+	a.setStatus("End of book — Restart or choose another section.")
+	a.saveProgress("")
+}
+
+// ---------- refresh ----------
+
+func (a *App) refreshAll() {
+	a.refreshWord()
+	a.refreshProgress()
+	a.syncTreeSelection()
+}
+
+func (a *App) refreshWord() {
+	if a.player == nil {
+		return
+	}
+	a.orp.SetWord(a.player.Current())
+}
+
+func (a *App) refreshProgress() {
+	if a.player == nil || a.book == nil {
+		return
+	}
+	pos, total, frac := a.player.Progress()
+	pct := frac * 100
+	a.progress.SetValue(frac)
+	sec := a.player.Section()
+	a.sectionLabel.SetText("Section: " + sec)
+	a.progressLabel.SetText(fmt.Sprintf("%d / %d (%.1f%%) · %s left · %d WPM",
+		pos+1, total, pct, a.player.TimeRemaining(), a.player.WPM()))
+	a.updateWPMLabel()
+}
+
+func (a *App) syncTreeSelection() {
+	if a.player == nil || a.book == nil {
+		return
+	}
+	sec := a.book.SectionForWord(a.player.Pos())
+	if sec == nil {
+		return
+	}
+	uid, ok := a.itemToUID[sec]
+	if !ok {
+		return
+	}
+	a.syncingTree = true
+	a.tree.Select(uid)
+	a.syncingTree = false
+}
+
+func (a *App) updateWPMLabel() {
+	wpm := a.prefWPM()
+	if a.player != nil {
+		wpm = a.player.WPM()
+	}
+	a.wpmLabel.SetText(fmt.Sprintf("%d WPM", wpm))
+}
+
+func (a *App) setStatus(s string) { a.statusLabel.SetText(s) }
+
+// ---------- persistence ----------
+
+func (a *App) saveProgress(tocHref string) {
+	if a.db == nil || a.book == nil || a.player == nil {
+		return
+	}
+	href := tocHref
+	if href == "" {
+		if s := a.book.SectionForWord(a.player.Pos()); s != nil {
+			href = s.TargetHref
+		}
+	}
+	_ = a.db.Save(store.Progress{
+		Fingerprint: a.book.Fingerprint, Path: a.currentPath(),
+		Title: a.book.Title, Creator: a.book.Creator,
+		WordIndex: a.player.Pos(), WPM: a.player.WPM(), TOCHref: href,
+	})
+	a.lastSave = time.Now()
+}
+
+func (a *App) maybePeriodicSave() {
+	if time.Since(a.lastSave) > 30*time.Second {
+		a.saveProgress("")
+	}
+}
+
+func (a *App) currentPath() string {
+	if a.db == nil || a.book == nil {
+		return ""
+	}
+	if p, ok := a.db.Lookup(a.book.Fingerprint); ok {
+		return p.Path
+	}
+	return ""
+}
+
+func (a *App) onClose() {
+	a.cancelTick()
+	a.saveProgress("")
+	a.win.Close()
+}
+
+// ---------- recent books ----------
+
+func (a *App) refreshRecent() {
+	if a.recentBox == nil || a.db == nil {
+		return
+	}
+	a.recentBox.Objects = nil
+	for _, p := range a.db.ListRecent() {
+		label := p.Title
+		if label == "" {
+			label = shortPath(p.Path)
+		} else {
+			label = fmt.Sprintf("%s (%s)", label, shortPath(p.Path))
+		}
+		path := p.Path
+		a.recentBox.Add(widget.NewButton(label, func() { a.openBook(path) }))
+	}
+	if len(a.recentBox.Objects) == 0 {
+		a.recentBox.Add(widget.NewLabel("No recent books yet."))
+	}
+	a.recentBox.Refresh()
+}
+
+// ---------- settings ----------
+
+func (a *App) showSettings() {
+	highlight := widget.NewCheck("Highlight recognition letter", func(bool) {})
+	highlight.SetChecked(a.orp.Highlight)
+	fontSlider := widget.NewSlider(28, 120)
+	fontSlider.Step = 4
+	fontSlider.SetValue(float64(a.orp.FontSize))
+	themeSel := widget.NewSelect([]string{"Dark", "Light"}, func(string) {})
+	if a.prefs().StringWithFallback("theme", "dark") == "light" {
+		themeSel.SetSelected("Light")
+	} else {
+		themeSel.SetSelected("Dark")
+	}
+	items := []*widget.FormItem{
+		widget.NewFormItem("Highlight", highlight),
+		widget.NewFormItem("Font size", fontSlider),
+		widget.NewFormItem("Theme", themeSel),
+	}
+	dialog.NewForm("Settings", "Apply", "Cancel", items, func(ok bool) {
+		if !ok {
+			return
+		}
+		a.orp.Highlight = highlight.Checked
+		a.prefs().SetBool("highlight", highlight.Checked)
+		a.orp.FontSize = float32(fontSlider.Value)
+		a.prefs().SetFloat("fontSize", fontSlider.Value)
+		if themeSel.Selected == "Light" {
+			a.prefs().SetString("theme", "light")
+		} else {
+			a.prefs().SetString("theme", "dark")
+		}
+		a.applyThemePref()
+		a.orp.Refresh()
+	}, a.win).Show()
+}
+
+func (a *App) applyThemePref() {
+	if a.prefs().StringWithFallback("theme", "dark") == "light" {
+		a.fyneApp.Settings().SetTheme(theme.LightTheme())
+	} else {
+		a.fyneApp.Settings().SetTheme(theme.DarkTheme())
+	}
+}
