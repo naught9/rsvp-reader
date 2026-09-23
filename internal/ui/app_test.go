@@ -10,6 +10,7 @@ import (
 
 	fynetest "fyne.io/fyne/v2/test"
 
+	"rsvp-reader/internal/doc"
 	"rsvp-reader/internal/epub"
 	"rsvp-reader/internal/store"
 )
@@ -58,7 +59,7 @@ func newTestApp(t *testing.T) (*App, string) {
 		t.Fatal(err)
 	}
 	a := New(fyneApp, db, "")
-	a.setBook(book, epubPath)
+	a.setDocument(doc.FromEPUB(book), epubPath)
 	return a, epubPath
 }
 
@@ -147,12 +148,12 @@ func TestResumePersistsAcrossReopen(t *testing.T) {
 	book, _ := epub.OpenFile(epubPath)
 
 	a1 := New(fyneApp, db, "")
-	a1.setBook(book, epubPath)
+	a1.setDocument(doc.FromEPUB(book), epubPath)
 	a1.onTOCSelected("1") // "End" -> word "six"
 	a1.bumpWPM(25)
 
 	a2 := New(fyneApp, db, "")
-	a2.setBook(book, epubPath)
+	a2.setDocument(doc.FromEPUB(book), epubPath)
 	if got := a2.player.Current(); got != "six" {
 		t.Fatalf("reopen current = %q, want six", got)
 	}
@@ -181,5 +182,50 @@ func TestEndedState(t *testing.T) {
 	a.refreshAll()
 	if a.playBtn.Text != "Restart" {
 		t.Fatalf("end-of-book button = %q", a.playBtn.Text)
+	}
+}
+
+func TestPasteTextSessionResumes(t *testing.T) {
+	dir := t.TempDir()
+	fyneApp := fynetest.NewApp()
+	db, _ := store.Open(dir)
+	a1 := New(fyneApp, db, "")
+	a1.openText("alpha beta gamma delta epsilon")
+	if a1.player.Len() != 5 {
+		t.Fatalf("words = %d", a1.player.Len())
+	}
+	if got := a1.player.Section(); got != "Pasted text" {
+		t.Fatalf("section = %q", got)
+	}
+	a1.player.Seek(3)
+	a1.saveProgress("")
+
+	a2 := New(fyneApp, db, "")
+	a2.openText("alpha beta gamma delta epsilon")
+	if got := a2.player.Current(); got != "delta" {
+		t.Fatalf("reopen current = %q, want delta", got)
+	}
+}
+
+func TestRecentTextReopensFromStore(t *testing.T) {
+	dir := t.TempDir()
+	fyneApp := fynetest.NewApp()
+	db, _ := store.Open(dir)
+	a1 := New(fyneApp, db, "")
+	a1.openText("one two three")
+	rec := db.ListRecent()
+	if len(rec) != 1 || rec[0].Path != "" {
+		t.Fatalf("recent = %+v", rec)
+	}
+	a2 := New(fyneApp, db, "")
+	a2.openRecent(rec[0])
+	if a2.player.Len() != 3 || a2.player.Current() != "one" {
+		t.Fatalf("reopened text session broken")
+	}
+}
+
+func TestImportFileRejectsUnknownType(t *testing.T) {
+	if _, err := importFile("/tmp/notes.txt"); err == nil {
+		t.Fatalf("unknown extension imported without error")
 	}
 }

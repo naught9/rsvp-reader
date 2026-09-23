@@ -82,3 +82,22 @@ func TestRemoveAndCorrupt(t *testing.T) {
 		t.Fatalf("corrupt store should start empty")
 	}
 }
+
+func TestTextRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(dir)
+	if err := s.SaveText("fp1", "hello pasted world"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.LoadText("fp1")
+	if err != nil || got != "hello pasted world" {
+		t.Fatalf("text = %q %v", got, err)
+	}
+	if _, err := s.LoadText("missing"); err == nil {
+		t.Fatalf("missing text loaded without error")
+	}
+	big := make([]byte, MaxTextBytes+1)
+	if err := s.SaveText("big", string(big)); err == nil {
+		t.Fatalf("oversize text accepted")
+	}
+}

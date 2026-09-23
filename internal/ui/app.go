@@ -17,7 +17,9 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"rsvp-reader/internal/doc"
 	"rsvp-reader/internal/epub"
+	"rsvp-reader/internal/pdf"
 	"rsvp-reader/internal/reader"
 	"rsvp-reader/internal/store"
 )
@@ -28,12 +30,12 @@ type App struct {
 	win     fyne.Window
 	db      *store.Store
 
-	book   *epub.Book
+	book   *doc.Document
 	player *reader.Player
 	cliArg string
 
-	uidToItem map[string]*epub.TOCItem
-	itemToUID map[*epub.TOCItem]string
+	uidToItem map[string]*doc.TOCItem
+	itemToUID map[*doc.TOCItem]string
 	topUIDs   []string
 
 	titleLabel    *widget.Label
@@ -93,14 +95,14 @@ func New(fyneApp fyne.App, db *store.Store, cliArg string) *App {
 func (a *App) Show() {
 	a.win.Show()
 	if a.cliArg != "" {
-		a.openBook(a.cliArg)
+		a.openFile(a.cliArg)
 	}
 }
 
 // ShowAndRun displays the window and runs the event loop.
 func (a *App) ShowAndRun() {
 	if a.cliArg != "" {
-		a.openBook(a.cliArg)
+		a.openFile(a.cliArg)
 	}
 	a.win.ShowAndRun()
 }
@@ -199,7 +201,7 @@ func (a *App) buildWidgets() {
 }
 
 func (a *App) topBar() *fyne.Container {
-	openBtn := NewPillButton("Open EPUB", a.showOpenDialog)
+	openBtn := NewPillButton("Open file", a.showOpenDialog)
 	toggleBtn := NewPillButton("Contents", a.toggleContents)
 	settingsBtn := NewPillButton("Settings", a.showSettings)
 	bar := container.NewBorder(nil, nil, nil,
@@ -251,11 +253,12 @@ func (a *App) buildLayout() {
 
 	emptyTitle := widget.NewLabel("RSVP Reader")
 	emptyTitle.TextStyle = fyne.TextStyle{Bold: true}
-	emptyOpen := NewPillButton("Open EPUB", a.showOpenDialog)
+	emptyOpen := NewPillButton("Open file", a.showOpenDialog)
 	emptyOpen.Bold = true
+	emptyPaste := NewPillButton("Paste text", a.showPasteDialog)
 	a.emptyScreen = container.NewCenter(container.NewVBox(
 		emptyTitle, widget.NewLabel("One word at a time, at a fixed focal point."),
-		emptyOpen, widget.NewLabel("Recent books:"), a.recentBox,
+		container.NewHBox(emptyOpen, pillGap(), emptyPaste), widget.NewLabel("Recent books:"), a.recentBox,
 	))
 
 	cancelBtn := NewPillButton("Cancel", a.cancelImport)
@@ -279,7 +282,7 @@ func (a *App) showScreen(s fyne.CanvasObject) {
 // ---------- menus, shortcuts, keys ----------
 
 func (a *App) buildMenu() {
-	openItem := fyne.NewMenuItem("Open EPUB…", a.showOpenDialog)
+	openItem := fyne.NewMenuItem("Open file…", a.showOpenDialog)
 	openItem.Shortcut = &desktop.CustomShortcut{KeyName: fyne.KeyO, Modifier: fyne.KeyModifierSuper}
 	a.win.SetMainMenu(fyne.NewMainMenu(fyne.NewMenu("File", openItem)))
 }
@@ -322,13 +325,37 @@ func (a *App) showOpenDialog() {
 		}
 		p := rc.URI().Path()
 		rc.Close()
-		a.openBook(p)
+		a.openFile(p)
 	}, a.win)
-	fd.SetFilter(storage.NewExtensionFileFilter([]string{".epub"}))
+	fd.SetFilter(storage.NewExtensionFileFilter([]string{".epub", ".pdf"}))
 	fd.Show()
 }
 
-func (a *App) openBook(path string) {
+// showPasteDialog collects plain text and starts a text session.
+func (a *App) showPasteDialog() {
+	entry := widget.NewMultiLineEntry()
+	entry.SetPlaceHolder("Paste or type text to read…")
+	body := container.NewGridWrap(fyne.NewSize(440, 240), entry)
+	cancelBtn := NewPillButton("Cancel", nil)
+	loadBtn := NewPillButton("Load text", nil)
+	loadBtn.Bold = true
+	buttons := container.NewHBox(layout.NewSpacer(), cancelBtn, pillGap(), loadBtn)
+	d := dialog.NewCustomWithoutButtons("Paste text",
+		container.NewVBox(body, buttons), a.win)
+	cancelBtn.OnTapped = d.Hide
+	loadBtn.OnTapped = func() {
+		text := strings.TrimSpace(entry.Text)
+		if len(strings.Fields(text)) == 0 {
+			dialog.ShowInformation("Empty text", "Paste some text first.", a.win)
+			return
+		}
+		d.Hide()
+		a.openText(text)
+	}
+	d.Show()
+}
+
+func (a *App) openFile(path string) {
 	if _, err := os.Stat(path); err != nil {
 		// Missing recent file: inform, drop it, retain no stale attempt.
 		if a.db != nil {
@@ -343,12 +370,18 @@ func (a *App) openBook(path string) {
 			fmt.Sprintf("Could not open %s. It was removed from recent books.", path), a.win)
 		return
 	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".epub", ".pdf":
+	default:
+		a.showOpenError(fmt.Errorf("unsupported file type"))
+		return
+	}
 	a.importGen++
 	gen := a.importGen
 	a.loadingLabel.SetText(fmt.Sprintf("Importing %s…", shortPath(path)))
 	a.showScreen(a.loadingScreen)
 	go func() {
-		book, err := epub.OpenFile(path)
+		d, err := importFile(path)
 		fyne.Do(func() {
 			if gen != a.importGen {
 				return // cancelled or superseded
@@ -358,10 +391,63 @@ func (a *App) openBook(path string) {
 				a.showOpenError(err)
 				return
 			}
-			a.setBook(book, path)
+			a.setDocument(d, path)
 			a.showScreen(a.readerScreen)
 		})
 	}()
+}
+
+// importFile routes a path to its source importer.
+func importFile(path string) (*doc.Document, error) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".epub":
+		b, err := epub.OpenFile(path)
+		if err != nil {
+			return nil, err
+		}
+		return doc.FromEPUB(b), nil
+	case ".pdf":
+		return pdf.OpenFile(path)
+	default:
+		return nil, fmt.Errorf("unsupported file type %q", filepath.Ext(path))
+	}
+}
+
+// openText starts (or resumes) a pasted-text session.
+func (a *App) openText(text string) {
+	d := doc.FromText("Pasted text", text)
+	if len(d.Words) == 0 {
+		a.showOpenError(fmt.Errorf("no readable words in that text"))
+		return
+	}
+	if a.db != nil {
+		if err := a.db.SaveText(d.Fingerprint, text); err != nil {
+			a.showOpenError(err)
+			return
+		}
+	}
+	a.setDocument(d, "")
+	a.showScreen(a.readerScreen)
+}
+
+// openRecent reopens a recent entry: files by path, texts from storage.
+func (a *App) openRecent(p store.Progress) {
+	if p.Path != "" {
+		a.openFile(p.Path)
+		return
+	}
+	if a.db == nil {
+		return
+	}
+	text, err := a.db.LoadText(p.Fingerprint)
+	if err != nil {
+		_ = a.db.Remove(p.Fingerprint)
+		a.refreshRecent()
+		dialog.ShowInformation("Text gone",
+			"That pasted text is no longer stored. It was removed from recent books.", a.win)
+		return
+	}
+	a.openText(text)
 }
 
 func (a *App) bookOrEmpty() fyne.CanvasObject {
@@ -381,7 +467,7 @@ func (a *App) showOpenError(err error) {
 	content := container.NewVBox(
 		widget.NewLabel("Could not open that file."),
 		widget.NewLabel(msg),
-		widget.NewLabel("EPUB 2/3 without DRM is supported; PDFs and fixed-layout books are not, yet."),
+		widget.NewLabel("EPUB 2/3 without DRM, plain PDFs, and pasted text are supported."),
 	)
 	d := dialog.NewCustom("Open failed", "Close", content, a.win)
 	openAnother := widget.NewButton("Open Another File", func() {
@@ -399,38 +485,29 @@ func shortPath(p string) string {
 	return p
 }
 
-func (a *App) setBook(book *epub.Book, path string) {
+func (a *App) setDocument(d *doc.Document, sourcePath string) {
 	a.cancelTick()
-	a.book = book
-	words := make([]string, len(book.Words))
-	for i, w := range book.Words {
-		words[i] = w.Text
-	}
+	a.book = d
 	wpm := reader.SnapWPM(a.prefWPM())
-	a.player = reader.NewPlayer(words, wpm)
-	a.player.SectionAt = func(idx int) string {
-		if s := book.SectionForWord(idx); s != nil {
-			return s.Label
-		}
-		return ""
-	}
+	a.player = reader.NewPlayer(d.Words, wpm)
+	a.player.SectionAt = d.SectionLabel
 	a.setWPM(wpm)
 	a.buildTOCModel()
-	a.titleLabel.SetText(bookTitle(book))
-	if book.TOCWarning != "" {
-		a.setStatus(book.TOCWarning)
+	a.titleLabel.SetText(docTitle(d))
+	if d.TOCWarning != "" {
+		a.setStatus(d.TOCWarning)
 	} else {
 		a.setStatus("")
 	}
 	// Restore last position and settings for this fingerprint.
 	if a.db != nil {
-		if p, ok := a.db.Lookup(book.Fingerprint); ok {
+		if p, ok := a.db.Lookup(d.Fingerprint); ok {
 			a.setWPM(reader.ClampWPM(p.WPM))
 			a.player.Seek(p.WordIndex)
 		}
 		_ = a.db.Save(store.Progress{
-			Fingerprint: book.Fingerprint, Path: path,
-			Title: book.Title, Creator: book.Creator,
+			Fingerprint: d.Fingerprint, Kind: d.Kind, Path: sourcePath,
+			Title: d.Title, Creator: d.Creator,
 			WordIndex: a.player.Pos(), WPM: a.player.WPM(),
 		})
 		a.refreshRecent()
@@ -444,21 +521,21 @@ func (a *App) setBook(book *epub.Book, path string) {
 	a.poke() // chrome visible, melts after idle
 }
 
-func bookTitle(b *epub.Book) string {
-	if b.Creator != "" {
-		return fmt.Sprintf("%s — %s", b.Title, b.Creator)
+func docTitle(d *doc.Document) string {
+	if d.Creator != "" {
+		return fmt.Sprintf("%s — %s", d.Title, d.Creator)
 	}
-	return b.Title
+	return d.Title
 }
 
 // ---------- TOC tree ----------
 
 func (a *App) buildTOCModel() {
-	a.uidToItem = map[string]*epub.TOCItem{}
-	a.itemToUID = map[*epub.TOCItem]string{}
+	a.uidToItem = map[string]*doc.TOCItem{}
+	a.itemToUID = map[*doc.TOCItem]string{}
 	a.topUIDs = nil
-	var assign func(items []*epub.TOCItem, prefix string)
-	assign = func(items []*epub.TOCItem, prefix string) {
+	var assign func(items []*doc.TOCItem, prefix string)
+	assign = func(items []*doc.TOCItem, prefix string) {
 		for i, it := range items {
 			uid := fmt.Sprintf("%d", i)
 			if prefix != "" {
@@ -530,7 +607,7 @@ func (a *App) onTOCSelected(uid string) {
 	a.playBtn.SetText("Play")
 	a.setStatus(fmt.Sprintf("Section: %s", it.Label))
 	a.refreshAll()
-	a.saveProgress(it.TargetHref)
+	a.saveProgress(it.Ref)
 }
 
 func (a *App) toggleContents() {
@@ -744,11 +821,11 @@ func (a *App) saveProgress(tocHref string) {
 	href := tocHref
 	if href == "" {
 		if s := a.book.SectionForWord(a.player.Pos()); s != nil {
-			href = s.TargetHref
+			href = s.Ref
 		}
 	}
 	_ = a.db.Save(store.Progress{
-		Fingerprint: a.book.Fingerprint, Path: a.currentPath(),
+		Fingerprint: a.book.Fingerprint, Kind: a.book.Kind, Path: a.currentPath(),
 		Title: a.book.Title, Creator: a.book.Creator,
 		WordIndex: a.player.Pos(), WPM: a.player.WPM(), TOCHref: href,
 	})
@@ -789,11 +866,11 @@ func (a *App) refreshRecent() {
 		label := p.Title
 		if label == "" {
 			label = shortPath(p.Path)
-		} else {
+		} else if p.Path != "" {
 			label = fmt.Sprintf("%s (%s)", label, shortPath(p.Path))
 		}
-		path := p.Path
-		a.recentBox.Add(NewPillButton(label, func() { a.openBook(path) }))
+		entry := p
+		a.recentBox.Add(NewPillButton(label, func() { a.openRecent(entry) }))
 	}
 	if len(a.recentBox.Objects) == 0 {
 		a.recentBox.Add(widget.NewLabel("No recent books yet."))

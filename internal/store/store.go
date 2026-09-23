@@ -17,6 +17,7 @@ const MaxRecent = 10
 // Progress is the saved reading state for one book, keyed by content hash.
 type Progress struct {
 	Fingerprint string    `json:"fingerprint"`
+	Kind        string    `json:"kind,omitempty"`
 	Path        string    `json:"path"`
 	Title       string    `json:"title"`
 	Creator     string    `json:"creator"`
@@ -138,6 +139,39 @@ func (s *Store) Remove(fingerprint string) error {
 	}
 	s.data.Recent = keep
 	return s.write()
+}
+
+// MaxTextBytes caps stored pasted-text sessions.
+const MaxTextBytes = 2 << 20
+
+// SaveText stores pasted-text content by fingerprint (atomic write) so
+// text sessions resume and reopen like files.
+func (s *Store) SaveText(fingerprint, text string) error {
+	if len(text) > MaxTextBytes {
+		return fmt.Errorf("store: pasted text exceeds %d bytes", MaxTextBytes)
+	}
+	dir := filepath.Join(s.dir, "texts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("store: mkdir texts: %w", err)
+	}
+	tmp := filepath.Join(dir, fingerprint+".tmp")
+	final := filepath.Join(dir, fingerprint+".txt")
+	if err := os.WriteFile(tmp, []byte(text), 0o644); err != nil {
+		return fmt.Errorf("store: write text: %w", err)
+	}
+	if err := os.Rename(tmp, final); err != nil {
+		return fmt.Errorf("store: commit text: %w", err)
+	}
+	return nil
+}
+
+// LoadText returns stored pasted-text content.
+func (s *Store) LoadText(fingerprint string) (string, error) {
+	raw, err := os.ReadFile(filepath.Join(s.dir, "texts", fingerprint+".txt"))
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 func (s *Store) write() error {
