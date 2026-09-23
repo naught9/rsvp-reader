@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -229,5 +230,85 @@ func TestRealBooksSpotCheck(t *testing.T) {
 			t.Fatalf("%s: empty title", f)
 		}
 		fmt.Printf("%s: %d words, %d top-level TOC\n", f, len(b.Words), len(b.TOC))
+	}
+}
+
+// TestLineNumberPruning covers the Odyssey pattern: digit id-anchors,
+// bare sequential digits, and the content that must survive (years,
+// chapter numbers, numbered lists, short runs).
+func TestLineNumberPruning(t *testing.T) {
+	verse := `<p class="v"><span><a id="l1">1</a> Sing to me of the man</span></p>` +
+		`<p class="v"><span><a id="l2">2</a> driven off course</span></p>` +
+		`<p class="v"><span><a id="l3">3</a> the hallowed heights</span></p>` +
+		`<p class="v"><span>4 many cities he saw</span></p>` +
+		`<p class="v"><span>5 many pains he suffered</span></p>` +
+		`<p class="v"><span>6 fighting to save his life</span></p>` +
+		`<p class="v"><span>In 1945 the fleet returned</span></p>` +
+		`<h2><span>Chapter 1</span></h2>` +
+		`<p class="v"><span>7 the wine-dark sea</span></p>` +
+		`<p class="v"><span>8 and back again</span></p>`
+	lists := `<ol><li>Preheat the oven</li><li>Mix the flour</li></ol>`
+	data := buildEPUB(t, map[string]string{
+		"mimetype":               "application/epub+zip",
+		"META-INF/container.xml": containerXML,
+		"OEBPS/content.opf":      `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Prune</dc:title></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="v" href="v.xhtml" media-type="application/xhtml+xml"/><item id="l" href="l.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="v"/><itemref idref="l"/></spine></package>`,
+		"OEBPS/nav.xhtml":        `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="v.xhtml#l2">Second line</a></li><li><a href="l.xhtml">Lists</a></li></ol></nav></body></html>`,
+		"OEBPS/v.xhtml":          `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body>` + verse + `</body></html>`,
+		"OEBPS/l.xhtml":          `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body>` + lists + `</body></html>`,
+	})
+	b := openBytes(t, data)
+	var texts []string
+	for _, w := range b.Words {
+		texts = append(texts, w.Text)
+	}
+	want := []string{"Sing", "to", "me", "of", "the", "man",
+		"driven", "off", "course", "the", "hallowed", "heights",
+		"many", "cities", "he", "saw", "many", "pains", "he", "suffered",
+		"fighting", "to", "save", "his", "life",
+		"In", "1945", "the", "fleet", "returned",
+		"Chapter", "1",
+		"the", "wine-dark", "sea", "and", "back", "again",
+		"Preheat", "the", "oven", "Mix", "the", "flour"}
+	if len(texts) != len(want) {
+		t.Fatalf("words = %q, want %q", texts, want)
+	}
+	for i := range want {
+		if texts[i] != want[i] {
+			t.Fatalf("words = %q, want %q", texts, want)
+		}
+	}
+	// The digit anchor still navigates: "Second line" starts at "driven".
+	if b.TOC[0].StartWord == nil {
+		t.Fatalf("TOC past digit anchor lost: %q", b.TOC[0].Unavailable)
+	}
+	if got := b.Words[*b.TOC[0].StartWord].Text; got != "driven" {
+		t.Fatalf("anchor resolves to %q, want driven", got)
+	}
+	// Paragraph boundary transfers across the dropped number.
+	for i, w := range b.Words {
+		if w.Text == "Sing" && !w.ParaStart {
+			t.Fatalf("word after dropped number lost its paragraph boundary (idx %d)", i)
+		}
+	}
+}
+
+// TestShortDigitRunsKept ensures isolated pairs never prune.
+func TestShortDigitRunsKept(t *testing.T) {
+	data := buildEPUB(t, map[string]string{
+		"mimetype":               "application/epub+zip",
+		"META-INF/container.xml": containerXML,
+		"OEBPS/content.opf":      `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Pairs</dc:title></metadata><manifest><item id="c" href="c.html" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>`,
+		"OEBPS/c.html":           `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>7 samurai stood</p><p>8 banners flew</p><p>In 1939 tensions rose</p></body></html>`,
+	})
+	b := openBytes(t, data)
+	var texts []string
+	for _, w := range b.Words {
+		texts = append(texts, w.Text)
+	}
+	joined := strings.Join(texts, " ")
+	for _, keep := range []string{"7", "8", "1939"} {
+		if !strings.Contains(joined, keep) {
+			t.Fatalf("isolated number %q wrongly pruned from %q", keep, joined)
+		}
 	}
 }
