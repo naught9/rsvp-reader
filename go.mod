@@ -2,7 +2,11 @@ module rsvp-reader
 
 go 1.26.4
 
-require fyne.io/fyne/v2 v2.8.1
+require (
+	fyne.io/fyne/v2 v2.8.1
+	github.com/go-text/typesetting v0.3.4
+	golang.org/x/net v0.59.0
+)
 
 require (
 	fyne.io/systray v1.12.3-0.20260810170012-af4e8e793ec4 // indirect
@@ -19,7 +23,6 @@ require (
 	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276 // indirect
 	github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.1.0.20260707082822-2a407d02d01a // indirect
 	github.com/go-text/render v0.2.1 // indirect
-	github.com/go-text/typesetting v0.3.4 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/hack-pad/go-indexeddb v0.3.2 // indirect
 	github.com/hack-pad/safejs v0.1.0 // indirect
@@ -35,7 +38,6 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/yuin/goldmark v1.8.2 // indirect
 	golang.org/x/image v0.24.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

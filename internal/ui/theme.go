@@ -31,12 +31,23 @@ var (
 // scandiTheme wraps the stock dark theme, overriding only the neutral
 // chrome tokens. Everything else (fonts, icons, sizes, semantic colors)
 // delegates, so accessibility states keep their shipped prominence.
+//
+// The reader font rides the Monospace slot: the ORP display is the only
+// monospace consumer, so a user-picked reader typeface changes the book
+// text without touching interface chrome.
 type scandiTheme struct {
-	base fyne.Theme
+	base       fyne.Theme
+	readerFont fyne.Resource
 }
 
-func newScandiTheme() fyne.Theme {
+func newScandiTheme() *scandiTheme {
 	return &scandiTheme{base: theme.DarkTheme()}
+}
+
+// SetReaderFont installs the user-selected reader typeface (nil restores
+// the bundled font).
+func (t *scandiTheme) SetReaderFont(r fyne.Resource) {
+	t.readerFont = r
 }
 
 func (t *scandiTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
@@ -80,6 +91,9 @@ func (t *scandiTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant)
 }
 
 func (t *scandiTheme) Font(style fyne.TextStyle) fyne.Resource {
+	if style.Monospace && t.readerFont != nil {
+		return t.readerFont
+	}
 	return t.base.Font(style)
 }
 

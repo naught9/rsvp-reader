@@ -3,7 +3,9 @@ package ui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -59,6 +61,11 @@ type App struct {
 	chromeHidden  bool
 	syncingWPM    bool
 
+	readerFont  fyne.Resource
+	fontMu      sync.RWMutex
+	fontList    []SystemFont
+	fontScanned chan struct{}
+
 	tickTimer   *time.Timer
 	importGen   int
 	syncingTree bool
@@ -68,8 +75,9 @@ type App struct {
 
 // New builds the application. cliArg is an optional EPUB path.
 func New(fyneApp fyne.App, db *store.Store, cliArg string) *App {
-	a := &App{fyneApp: fyneApp, db: db, cliArg: cliArg, contentsOn: true}
+	a := &App{fyneApp: fyneApp, db: db, cliArg: cliArg, contentsOn: true, fontScanned: make(chan struct{})}
 	a.win = fyneApp.NewWindow("RSVP Reader")
+	a.loadSavedFont()
 	a.applyThemePref()
 	a.buildWidgets()
 	a.buildLayout()
@@ -77,6 +85,7 @@ func New(fyneApp fyne.App, db *store.Store, cliArg string) *App {
 	a.buildShortcuts()
 	a.win.SetCloseIntercept(a.onClose)
 	a.win.Resize(fyne.NewSize(900, 650))
+	go a.scanFonts()
 	return a
 }
 
@@ -788,6 +797,8 @@ func (a *App) refreshRecent() {
 
 // ---------- settings ----------
 
+const fontDefaultLabel = "System default"
+
 func (a *App) showSettings() {
 	highlight := widget.NewCheck("Highlight recognition letter", func(bool) {})
 	highlight.SetChecked(a.orp.Highlight)
@@ -800,9 +811,27 @@ func (a *App) showSettings() {
 	} else {
 		themeSel.SetSelected("Dark")
 	}
+	fontOpts, fontPaths := a.fontOptions()
+	fontSel := widget.NewSelect(fontOpts, func(string) {})
+	current := fontDefaultLabel
+	if saved := a.prefs().StringWithFallback("readerFontPath", ""); saved != "" {
+		for fam, path := range fontPaths {
+			if path == saved {
+				current = fam
+				break
+			}
+		}
+	}
+	fontSel.SetSelected(current)
+	select {
+	case <-a.fontScanned:
+	default:
+		fontSel.Disable() // scan still running; picker shows current only
+	}
 	items := []*widget.FormItem{
 		widget.NewFormItem("Highlight", highlight),
 		widget.NewFormItem("Font size", fontSlider),
+		widget.NewFormItem("Reader font", fontSel),
 		widget.NewFormItem("Theme", themeSel),
 	}
 	dialog.NewForm("Settings", "Apply", "Cancel", items, func(ok bool) {
@@ -813,6 +842,7 @@ func (a *App) showSettings() {
 		a.prefs().SetBool("highlight", highlight.Checked)
 		a.orp.FontSize = float32(fontSlider.Value)
 		a.prefs().SetFloat("fontSize", fontSlider.Value)
+		a.applyReaderFont(fontSel.Selected, fontPaths)
 		if themeSel.Selected == "Light" {
 			a.prefs().SetString("theme", "light")
 		} else {
@@ -823,10 +853,71 @@ func (a *App) showSettings() {
 	}, a.win).Show()
 }
 
+// applyReaderFont loads the selected family (or restores the default),
+// keeping the previous typeface when the file fails to load.
+func (a *App) applyReaderFont(selected string, paths map[string]string) {
+	if selected == "" || selected == fontDefaultLabel {
+		a.readerFont = nil
+		a.prefs().SetString("readerFontPath", "")
+		return
+	}
+	path, ok := paths[selected]
+	if !ok {
+		return
+	}
+	data, err := LoadFontResource(path)
+	if err != nil {
+		a.setStatus(fmt.Sprintf("Could not load %s; keeping the previous font.", selected))
+		return
+	}
+	a.readerFont = fyne.NewStaticResource(filepath.Base(path), data)
+	a.prefs().SetString("readerFontPath", path)
+}
+
 func (a *App) applyThemePref() {
 	if a.prefs().StringWithFallback("theme", "dark") == "light" {
 		a.fyneApp.Settings().SetTheme(theme.LightTheme())
 	} else {
-		a.fyneApp.Settings().SetTheme(newScandiTheme())
+		th := newScandiTheme()
+		th.SetReaderFont(a.readerFont)
+		a.fyneApp.Settings().SetTheme(th)
 	}
+}
+
+// scanFonts inventories system fonts off the UI thread; settings reads
+// the snapshot when opened.
+func (a *App) scanFonts() {
+	list := ScanSystemFonts(FontDirs())
+	a.fontMu.Lock()
+	a.fontList = list
+	a.fontMu.Unlock()
+	close(a.fontScanned)
+}
+
+// loadSavedFont restores the persisted reader typeface, falling back to
+// the bundled font when the file is gone or unloadable.
+func (a *App) loadSavedFont() {
+	path := a.prefs().StringWithFallback("readerFontPath", "")
+	if path == "" {
+		return
+	}
+	data, err := LoadFontResource(path)
+	if err != nil {
+		a.prefs().SetString("readerFontPath", "")
+		return
+	}
+	a.readerFont = fyne.NewStaticResource(filepath.Base(path), data)
+}
+
+// fontOptions snapshots the picker entries: default first, then families.
+func (a *App) fontOptions() ([]string, map[string]string) {
+	a.fontMu.RLock()
+	defer a.fontMu.RUnlock()
+	opts := []string{fontDefaultLabel}
+	paths := map[string]string{}
+	for _, f := range a.fontList {
+		opts = append(opts, f.Family)
+		paths[f.Family] = f.Path
+	}
+	return opts, paths
 }
