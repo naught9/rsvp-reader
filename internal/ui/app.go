@@ -74,7 +74,6 @@ type App struct {
 	syncingTree   bool
 	contentsOn    bool
 	contextOn     bool
-	lastShift     time.Time
 	contextRich   *widget.RichText
 	contextScroll *container.Scroll
 	contextPane   fyne.CanvasObject
@@ -313,6 +312,15 @@ func (a *App) buildShortcuts() {
 	c := a.win.Canvas()
 	c.AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyO, Modifier: fyne.KeyModifierSuper},
 		func(fyne.Shortcut) { a.showOpenDialog() })
+	// Option+arrows jump a chunk. The driver dispatches Alt-modified
+	// shortcuts but refuses Shift-modified ones outright, and Shift state
+	// can't be tracked reliably (modifiers neither repeat nor report
+	// release), so Shift chords degrade on hold. Option mirrors the
+	// system word-jump binding; entries keep native keys via the guard.
+	c.AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyLeft, Modifier: fyne.KeyModifierAlt},
+		func(fyne.Shortcut) { a.onJump(-1) })
+	c.AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyRight, Modifier: fyne.KeyModifierAlt},
+		func(fyne.Shortcut) { a.onJump(1) })
 	c.SetOnTypedKey(func(e *fyne.KeyEvent) {
 		switch e.Name {
 		case fyne.KeySpace:
@@ -320,20 +328,10 @@ func (a *App) buildShortcuts() {
 				return
 			}
 			a.togglePlay()
-		case desktop.KeyShiftLeft, desktop.KeyShiftRight:
-			// The driver never dispatches Shift-modified shortcuts (it
-			// excludes the Shift modifier outright), so Shift+arrows
-			// are detected here by recency: a Shift press shortly
-			// before the arrow means jump, otherwise step. Held Shift
-			// repeats and refreshes the stamp; a stale stamp expires.
-			// Skipped when typing: Shift there is capitals/selection.
-			if _, ok := c.Focused().(*widget.Entry); !ok {
-				a.lastShift = time.Now()
-			}
 		case fyne.KeyLeft:
-			a.onArrow(-1)
+			a.step(-1)
 		case fyne.KeyRight:
-			a.onArrow(1)
+			a.step(1)
 		case fyne.KeyUp:
 			a.bumpWPM(reader.StepWPM)
 		case fyne.KeyDown:
@@ -703,21 +701,13 @@ func (a *App) togglePlay() {
 
 func (a *App) wasResumed() bool { return a.lastSave.IsZero() == false || a.player.Pos() != 0 }
 
-// shiftJumpWindow is how fresh a Shift press must be for an arrow to
-// read as a chunk jump rather than a single step.
-const shiftJumpWindow = 500 * time.Millisecond
-
-// onArrow steps one word, or jumps a chunk when Shift was just pressed.
+// onJump moves a chunk, unless typing (entries keep native keys).
 // Skipped when typing: Shift+arrows there are text selection.
-func (a *App) onArrow(dir int) {
+func (a *App) onJump(dir int) {
 	if _, ok := a.win.Canvas().Focused().(*widget.Entry); ok {
 		return
 	}
-	if time.Since(a.lastShift) < shiftJumpWindow {
-		a.jumpWords(dir * jumpChunk)
-		return
-	}
-	a.step(dir)
+	a.jumpWords(dir * jumpChunk)
 }
 
 // jumpChunk is the Shift+arrow jump distance in words.

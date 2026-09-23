@@ -259,18 +259,19 @@ func TestJumpWordsChunk(t *testing.T) {
 	a.cancelTick()
 }
 
-func TestOnArrowShiftJump(t *testing.T) {
+func TestOnJumpChunk(t *testing.T) {
 	a, _ := newTestApp(t) // 11 words
-	a.lastShift = time.Now()
-	a.onArrow(1) // fresh Shift: jumps to the end
+	a.onJump(1)           // jumps to the end, paused
 	if a.player.Current() != "nine" {
-		t.Fatalf("shift+right = %q, want last word", a.player.Current())
+		t.Fatalf("option+right = %q, want last word", a.player.Current())
+	}
+	if a.player.Playing() {
+		t.Fatalf("jump must pause")
 	}
 	a.cancelTick()
-	a.lastShift = time.Time{} // stale: steps one word back
-	a.onArrow(-1)
-	if a.player.Current() != "eight" {
-		t.Fatalf("plain left = %q, want one step back", a.player.Current())
+	a.onJump(-1) // jumps to the start
+	if a.player.Current() != "one" {
+		t.Fatalf("option+left = %q, want first word", a.player.Current())
 	}
 	a.cancelTick()
 }
