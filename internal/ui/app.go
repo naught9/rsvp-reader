@@ -332,9 +332,10 @@ func (a *App) showOpenDialog() {
 	}, a.win)
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".epub", ".pdf"}))
 	// Fyne draws its own picker (no native NSOpenPanel integration
-	// exists upstream); give it room to breathe instead.
-	fd.Resize(fyne.NewSize(780, 560))
+	// exists upstream); give it room to breathe instead. Resize must
+	// come after Show: the inner window MinSize reads nil before that.
 	fd.Show()
+	fd.Resize(fyne.NewSize(780, 560))
 }
 
 // showPasteDialog collects plain text and starts a text session.

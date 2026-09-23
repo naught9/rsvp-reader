@@ -229,3 +229,9 @@ func TestImportFileRejectsUnknownType(t *testing.T) {
 		t.Fatalf("unknown extension imported without error")
 	}
 }
+
+func TestShowOpenDialogDoesNotCrash(t *testing.T) {
+	// Resize-before-Show nil-derefs the inner dialog window.
+	a, _ := newTestApp(t)
+	a.showOpenDialog()
+}
