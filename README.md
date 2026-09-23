@@ -13,6 +13,7 @@ Built from scratch with [Fyne](https://fyne.io/). Interaction design informed by
 - Remembers position, speed, and settings per book (keyed by content hash), plus a recent-books list
 - Dark theme by default, light theme available; adjustable reader font size and a searchable system font picker for the reader typeface (TrueType, OpenType, and collections)
 - Fully offline — no accounts, telemetry, or network requests
+- Display stays awake while playing (macOS power assertion); cursor hides with the chrome in zen mode
 
 ## Requirements
 

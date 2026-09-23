@@ -22,6 +22,7 @@ import (
 	"rsvp-reader/internal/pdf"
 	"rsvp-reader/internal/reader"
 	"rsvp-reader/internal/store"
+	"rsvp-reader/internal/wake"
 )
 
 // App wires the book model, playback state, and Fyne widgets.
@@ -525,7 +526,8 @@ func (a *App) setDocument(d *doc.Document, sourcePath string) {
 	a.playBtn.SetText("Play")
 	a.chromeHidden = false
 	a.refreshAll()
-	a.poke() // chrome visible, melts after idle
+	a.poke()         // chrome visible, melts after idle
+	a.syncWakeLock() // fresh documents open paused
 }
 
 func docTitle(d *doc.Document) string {
@@ -615,6 +617,7 @@ func (a *App) onTOCSelected(uid string) {
 	a.setStatus(fmt.Sprintf("Section: %s", it.Label))
 	a.refreshAll()
 	a.saveProgress(it.Ref)
+	a.syncWakeLock() // seeking pauses
 }
 
 func (a *App) toggleContents() {
@@ -635,6 +638,7 @@ func (a *App) togglePlay() {
 	if a.player == nil || a.book == nil {
 		return
 	}
+	defer a.syncWakeLock() // held iff playing when we leave
 	now := time.Now()
 	if a.player.Playing() {
 		a.cancelTick()
@@ -686,6 +690,7 @@ func (a *App) step(dir int) {
 		a.saveProgress("")
 	}
 	a.revealChrome() // stepping pauses: paused chrome is shown and held
+	a.syncWakeLock()
 }
 
 func (a *App) bumpWPM(delta int) {
@@ -743,6 +748,7 @@ func (a *App) onEnded() {
 	a.setStatus("End of book — Restart or choose another section.")
 	a.saveProgress("")
 	a.revealChrome() // stopped reads as paused: shown and held
+	a.syncWakeLock()
 }
 
 // ---------- refresh ----------
@@ -856,10 +862,24 @@ func (a *App) currentPath() string {
 	return ""
 }
 
+// syncWakeLock holds the display awake exactly while playing.
+func (a *App) syncWakeLock() {
+	if a.player != nil && a.player.Playing() {
+		wake.Hold()
+	} else {
+		wake.Release()
+	}
+}
+
 func (a *App) onClose() {
 	a.cancelTick()
 	a.cancelHideTimer()
 	a.saveProgress("")
+	wake.Release()
+	if a.chromeHidden {
+		// Restore only what we hid: the hide count is system-global.
+		setCursorVisible(true)
+	}
 	a.win.Close()
 }
 

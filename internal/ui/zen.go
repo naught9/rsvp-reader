@@ -123,6 +123,7 @@ func (a *App) showChrome() {
 		return
 	}
 	a.chromeHidden = false
+	setCursorVisible(true)
 	if a.topWrap != nil {
 		a.topWrap.Show()
 	}
@@ -139,6 +140,7 @@ func (a *App) hideChrome() {
 		return // stale timer: pausing outranks a pending hide
 	}
 	a.chromeHidden = true
+	setCursorVisible(false)
 	if a.topWrap != nil {
 		a.topWrap.Hide()
 	}

@@ -3,6 +3,8 @@ package ui
 import (
 	"testing"
 	"time"
+
+	"rsvp-reader/internal/wake"
 )
 
 func TestZenPlayHidesImmediately(t *testing.T) {
@@ -78,6 +80,23 @@ func TestZenEndedShows(t *testing.T) {
 	if a.playBtn.Text != "Restart" {
 		t.Fatalf("end-of-book button = %q", a.playBtn.Text)
 	}
+}
+
+func TestWakeLockFollowsPlayback(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.syncWakeLock()
+	if wake.Held() {
+		t.Fatalf("display lock held while paused")
+	}
+	a.togglePlay()
+	if !wake.Held() {
+		t.Fatalf("display lock not held while playing")
+	}
+	a.togglePlay()
+	if wake.Held() {
+		t.Fatalf("display lock held after pause")
+	}
+	a.cancelTick()
 }
 
 func TestStatusCollapsesWhenEmpty(t *testing.T) {
