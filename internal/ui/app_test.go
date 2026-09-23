@@ -288,3 +288,19 @@ func TestSentencePausePref(t *testing.T) {
 	}
 	a.cancelTick()
 }
+
+func TestPanesRememberedDefaultClosed(t *testing.T) {
+	a, _ := newTestApp(t)
+	if a.contentsOn || a.contextOn {
+		t.Fatalf("panes should default closed (contents=%v context=%v)", a.contentsOn, a.contextOn)
+	}
+	a.toggleContents()
+	if !a.prefs().BoolWithFallback("contentsPane", false) {
+		t.Fatalf("contents choice not persisted")
+	}
+	a.toggleContents()
+	if a.prefs().BoolWithFallback("contentsPane", true) {
+		t.Fatalf("contents close not persisted")
+	}
+	a.cancelTick()
+}

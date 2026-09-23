@@ -91,7 +91,8 @@ type App struct {
 
 // New builds the application. cliArg is an optional EPUB path.
 func New(fyneApp fyne.App, db *store.Store, cliArg string) *App {
-	a := &App{fyneApp: fyneApp, db: db, cliArg: cliArg, contentsOn: true, fontScanned: make(chan struct{})}
+	a := &App{fyneApp: fyneApp, db: db, cliArg: cliArg, fontScanned: make(chan struct{})}
+	a.contentsOn = a.prefs().BoolWithFallback("contentsPane", false)
 	a.contextOn = a.prefs().BoolWithFallback("contextPane", false)
 	a.win = fyneApp.NewWindow("RSVP Reader")
 	a.loadSavedFont()
@@ -667,6 +668,7 @@ func (a *App) onTOCSelected(uid string) {
 func (a *App) toggleContents() {
 	// HSplit has no collapse; swap the reader center with/without the tree.
 	a.contentsOn = !a.contentsOn
+	a.prefs().SetBool("contentsPane", a.contentsOn)
 	a.buildReaderScreen()
 	a.root.Objects[1] = a.readerScreen
 	a.root.Refresh()
