@@ -1,6 +1,5 @@
 .DS_Store
-rsvp
-/rsvp-reader
+/rsvp
 epubs/
 *.test
 *.out
