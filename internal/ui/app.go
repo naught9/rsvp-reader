@@ -226,7 +226,13 @@ func (a *App) bottomBar() *fyne.Container {
 func (a *App) readerCenter() fyne.CanvasObject {
 	if a.contentsOn {
 		// Tree scrolls internally; do not wrap it in another scroller.
-		return container.NewHSplit(a.tree, container.NewCenter(a.orp))
+		// The tree pane carries gutters mirroring the floating chrome so
+		// rows never slide underneath it; the word pane spans the full
+		// window height, so the word is always absolutely centered.
+		treePane := container.NewBorder(
+			newMirrorSpacer(a.topWrap), newMirrorSpacer(a.bottomWrap),
+			nil, nil, a.tree)
+		return container.NewHSplit(treePane, container.NewCenter(a.orp))
 	}
 	return container.NewCenter(a.orp)
 }
@@ -234,14 +240,11 @@ func (a *App) readerCenter() fyne.CanvasObject {
 func (a *App) buildReaderScreen() {
 	a.topWrap = a.topBar()
 	a.bottomWrap = a.bottomBar()
-	// Content keeps permanent gutters mirroring the chrome, so the word
-	// never moves when chrome hides. The chrome overlays its gutters;
-	// the detector sits beneath everything.
-	content := container.NewBorder(
-		newMirrorSpacer(a.topWrap), newMirrorSpacer(a.bottomWrap),
-		nil, nil, a.readerCenter())
+	// Content fills the window so the word is absolutely centered; the
+	// chrome floats over the tree pane's reserved gutters and the
+	// detector sits beneath everything.
 	chrome := container.NewBorder(a.topWrap, a.bottomWrap, nil, nil)
-	a.readerScreen = container.NewStack(a.detector, content, chrome)
+	a.readerScreen = container.NewStack(a.detector, a.readerCenter(), chrome)
 	if a.chromeHidden && a.book != nil {
 		a.topWrap.Hide()
 		a.bottomWrap.Hide()
@@ -638,7 +641,7 @@ func (a *App) togglePlay() {
 		a.playBtn.SetText("Resume")
 		a.saveProgress("")
 		a.refreshAll()
-		a.hideNow()
+		a.revealChrome() // pause always shows and holds
 		return
 	}
 	if a.player.Ended() {
@@ -656,7 +659,7 @@ func (a *App) togglePlay() {
 		a.scheduleTick()
 	}
 	a.refreshAll()
-	a.poke()
+	a.hideNow() // play always hides immediately
 }
 
 func (a *App) wasResumed() bool { return a.lastSave.IsZero() == false || a.player.Pos() != 0 }
@@ -681,6 +684,7 @@ func (a *App) step(dir int) {
 	if moved {
 		a.saveProgress("")
 	}
+	a.revealChrome() // stepping pauses: paused chrome is shown and held
 }
 
 func (a *App) bumpWPM(delta int) {
@@ -737,7 +741,7 @@ func (a *App) onEnded() {
 	a.playBtn.SetText("Restart")
 	a.setStatus("End of book — Restart or choose another section.")
 	a.saveProgress("")
-	a.hideNow()
+	a.revealChrome() // stopped reads as paused: shown and held
 }
 
 // ---------- refresh ----------

@@ -100,18 +100,20 @@ func (r *mirrorSpacerRenderer) Objects() []fyne.CanvasObject {
 }
 func (r *mirrorSpacerRenderer) Destroy() {}
 
-// poke records mouse activity: the chrome appears, and the idle timer
-// that melts it away is re-armed. Chrome follows the mouse only; pausing,
-// stepping, or seeking never summons it.
+// poke records mouse activity: the chrome appears. While playing the
+// idle timer that melts it away is re-armed; while paused the chrome
+// holds with no timer, so it can never auto-hide when paused.
 func (a *App) poke() {
 	if a.book == nil {
 		return
 	}
 	a.showChrome()
 	a.cancelHideTimer()
-	a.hideTimer = time.AfterFunc(chromeIdleHide, func() {
-		fyne.Do(a.hideChrome)
-	})
+	if a.player != nil && a.player.Playing() {
+		a.hideTimer = time.AfterFunc(chromeIdleHide, func() {
+			fyne.Do(a.hideChrome)
+		})
+	}
 }
 
 // hideNow melts the chrome immediately, whatever the state.
@@ -133,6 +135,9 @@ func (a *App) hideChrome() {
 	if a.chromeHidden || a.book == nil {
 		return
 	}
+	if a.player != nil && !a.player.Playing() {
+		return // stale timer: pausing outranks a pending hide
+	}
 	a.chromeHidden = true
 	if a.topWrap != nil {
 		a.topWrap.Hide()
@@ -147,6 +152,13 @@ func (a *App) cancelHideTimer() {
 		a.hideTimer.Stop()
 		a.hideTimer = nil
 	}
+}
+
+// revealChrome shows the chrome with no idle timer: the paused holding
+// state. Paused chrome never auto-hides.
+func (a *App) revealChrome() {
+	a.showChrome()
+	a.cancelHideTimer()
 }
 
 // hideNow melts the chrome immediately, whatever the state.

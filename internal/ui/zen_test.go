@@ -5,35 +5,45 @@ import (
 	"time"
 )
 
-func TestZenPauseHidesImmediately(t *testing.T) {
+func TestZenPlayHidesImmediately(t *testing.T) {
 	a, _ := newTestApp(t)
-	a.togglePlay() // playing: visible + idle timer armed
-	if a.topWrap.Hidden || a.bottomWrap.Hidden {
-		t.Fatalf("chrome hidden immediately after play")
-	}
-	a.poke()            // mouse over the screen...
-	a.togglePlay()      // ...then pause: chrome melts at once
-	a.cancelHideTimer() // (test cleanup; pause leaves no timer anyway)
+	a.togglePlay() // play melts the chrome at once
 	if !a.topWrap.Hidden || !a.bottomWrap.Hidden {
-		t.Fatalf("pause did not hide the chrome immediately")
+		t.Fatalf("play did not hide the chrome immediately")
 	}
+	a.cancelTick()
 }
 
-func TestZenMouseRevealsAndIdleHides(t *testing.T) {
+func TestZenPauseShowsAndHolds(t *testing.T) {
 	a, _ := newTestApp(t)
-	a.hideNow()
-	if !a.topWrap.Hidden {
-		t.Fatalf("hideNow did not hide")
-	}
-	a.poke() // mouse move reveals in any state...
+	a.togglePlay() // playing, hidden
+	a.poke()       // mouse reveals while playing...
 	if a.topWrap.Hidden || a.bottomWrap.Hidden {
 		t.Fatalf("mouse move did not reveal the chrome")
 	}
-	a.hideChrome() // ...and idle melts it again, paused or playing
+	a.togglePlay() // ...pause shows and holds
+	if a.topWrap.Hidden || a.bottomWrap.Hidden {
+		t.Fatalf("pause did not show the chrome")
+	}
+	if a.hideTimer != nil {
+		t.Fatalf("paused chrome must carry no idle timer")
+	}
+	a.hideChrome() // stale hides are refused while paused
+	if a.topWrap.Hidden || a.bottomWrap.Hidden {
+		t.Fatalf("chrome hid while paused")
+	}
+}
+
+func TestZenIdleHidesOnlyWhilePlaying(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.togglePlay()
+	a.poke()
+	a.hideChrome() // idle timeout while playing: melts
 	if !a.topWrap.Hidden || !a.bottomWrap.Hidden {
-		t.Fatalf("idle did not hide the chrome")
+		t.Fatalf("idle did not hide the chrome while playing")
 	}
 	a.cancelHideTimer()
+	a.cancelTick()
 }
 
 func TestZenTapTogglesPlayback(t *testing.T) {
@@ -42,24 +52,31 @@ func TestZenTapTogglesPlayback(t *testing.T) {
 	if !a.player.Playing() {
 		t.Fatalf("tap on the reader did not start playback")
 	}
-	a.cancelHideTimer()
+	if !a.topWrap.Hidden {
+		t.Fatalf("play-by-tap must hide the chrome immediately")
+	}
 	a.detector.Tapped(nil)
 	if a.player.Playing() {
 		t.Fatalf("tap on the reader did not pause playback")
 	}
-	if !a.topWrap.Hidden {
-		t.Fatalf("pause-by-tap must hide the chrome immediately")
+	if a.topWrap.Hidden {
+		t.Fatalf("pause-by-tap must show the chrome")
 	}
+	a.cancelTick()
 }
 
-func TestZenEndedHides(t *testing.T) {
+func TestZenEndedShows(t *testing.T) {
 	a, _ := newTestApp(t)
 	a.player.Seek(a.player.Len() - 2)
 	a.player.Play(time.Now())
+	a.player.Tick(time.Now().Add(time.Hour))
 	a.player.Tick(time.Now().Add(2 * time.Hour))
 	a.onEnded()
-	if !a.topWrap.Hidden || !a.bottomWrap.Hidden {
-		t.Fatalf("end of book must melt the chrome like a pause")
+	if a.topWrap.Hidden || a.bottomWrap.Hidden {
+		t.Fatalf("end of book must show the chrome like a pause")
+	}
+	if a.playBtn.Text != "Restart" {
+		t.Fatalf("end-of-book button = %q", a.playBtn.Text)
 	}
 }
 
