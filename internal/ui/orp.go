@@ -49,6 +49,8 @@ type orpRenderer struct {
 	placeholder *canvas.Text
 	guideTop    *canvas.Rectangle
 	guideBottom *canvas.Rectangle
+	ruleTop     *canvas.Rectangle
+	ruleBottom  *canvas.Rectangle
 }
 
 func (w *ORPWidget) CreateRenderer() fyne.WidgetRenderer {
@@ -59,6 +61,10 @@ func (w *ORPWidget) CreateRenderer() fyne.WidgetRenderer {
 	r.placeholder = canvas.NewText(w.Placeholder, theme.DisabledColor())
 	r.guideTop = canvas.NewRectangle(theme.SeparatorColor())
 	r.guideBottom = canvas.NewRectangle(theme.SeparatorColor())
+	// Focus rules: full-width horizontals meeting the focal ticks
+	// end-to-end, framing the word band. Same separator color.
+	r.ruleTop = canvas.NewRectangle(theme.SeparatorColor())
+	r.ruleBottom = canvas.NewRectangle(theme.SeparatorColor())
 	for _, t := range []*canvas.Text{r.before, r.focal, r.after, r.placeholder} {
 		t.TextStyle = fyne.TextStyle{Monospace: true}
 	}
@@ -126,6 +132,12 @@ func (r *orpRenderer) Layout(size fyne.Size) {
 	r.guideTop.Move(fyne.NewPos(cx-gw/2, midY-90))
 	r.guideBottom.Resize(fyne.NewSize(gw, gh))
 	r.guideBottom.Move(fyne.NewPos(cx-gw/2, midY+54))
+	// Rules span the pane at the ticks' outer ends, touching them.
+	rh := float32(2)
+	r.ruleTop.Resize(fyne.NewSize(size.Width, rh))
+	r.ruleTop.Move(fyne.NewPos(0, midY-90-rh/2))
+	r.ruleBottom.Resize(fyne.NewSize(size.Width, rh))
+	r.ruleBottom.Move(fyne.NewPos(0, midY+90-rh/2))
 
 	if r.placeholder.Visible() {
 		r.placeholder.Resize(r.placeholder.MinSize())
@@ -160,7 +172,7 @@ func (r *orpRenderer) Refresh() {
 }
 
 func (r *orpRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.guideTop, r.guideBottom, r.before, r.focal, r.after, r.placeholder}
+	return []fyne.CanvasObject{r.guideTop, r.guideBottom, r.ruleTop, r.ruleBottom, r.before, r.focal, r.after, r.placeholder}
 }
 
 func (r *orpRenderer) Destroy() {}

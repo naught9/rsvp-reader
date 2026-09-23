@@ -243,7 +243,7 @@ func (a *App) bottomBar() *fyne.Container {
 // wrappers so zen mode can hide them.
 
 func (a *App) readerCenter() fyne.CanvasObject {
-	center := fyne.CanvasObject(container.NewCenter(a.orp))
+	center := fyne.CanvasObject(container.NewMax(a.orp))
 	if a.contextOn {
 		if a.contextPane == nil {
 			a.buildContextPane()
