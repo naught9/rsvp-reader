@@ -1091,7 +1091,7 @@ func (a *App) showSettings() {
 	sentencePause.SetChecked(a.prefSentencePause())
 	form := widget.NewForm(
 		widget.NewFormItem("Highlight", highlight),
-		widget.NewFormItem("Pause at sentence ends", sentencePause),
+		widget.NewFormItem("Pause on punctuation", sentencePause),
 		widget.NewFormItem("Font size", fontSizeSlider),
 		widget.NewFormItem("Reader font", fontPicker),
 		widget.NewFormItem("Theme", themeSel),
