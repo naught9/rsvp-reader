@@ -158,3 +158,101 @@ func TestThemeReaderFontSlot(t *testing.T) {
 		t.Fatalf("clearing must restore the bundled font")
 	}
 }
+
+func TestStyleScore(t *testing.T) {
+	for _, s := range []string{"", "Regular", "Roman", "normal", "Plain", "Book"} {
+		if styleScore(s) != 0 {
+			t.Errorf("styleScore(%q) != 0", s)
+		}
+	}
+	for _, s := range []string{"Bold", "Italic", "Bold Italic", "Black", "Light", "Oblique"} {
+		if styleScore(s) != 2 {
+			t.Errorf("styleScore(%q) != 2", s)
+		}
+	}
+}
+
+func TestScanPrefersRegular(t *testing.T) {
+	// A Bold file sorting first lexically must not win the family.
+	bold, reg := realFont(t, "Arial Bold.ttf"), realFont(t, "Arial.ttf")
+	if bold == "" || reg == "" {
+		t.Skip("Arial pair not on this machine")
+	}
+	dir := t.TempDir()
+	copyFile(t, bold, dir+"/a.ttf") // sorts first, must lose
+	copyFile(t, reg, dir+"/z.ttf")
+	found := ScanSystemFonts([]string{dir})
+	if len(found) != 1 || found[0].Family != "Arial" {
+		t.Fatalf("scan = %+v", found)
+	}
+	if found[0].Path != dir+"/z.ttf" {
+		t.Fatalf("family maps to %q, want the Regular file", found[0].Path)
+	}
+}
+
+func TestExtractFacePrefersRegular(t *testing.T) {
+	path := realCollection(t)
+	data := mustRead(t, path)
+	fams := familiesInFile(path)
+	if len(fams) == 0 {
+		t.Skip("collection names nothing")
+	}
+	single, err := ExtractFace(data, fams[0])
+	if err != nil {
+		t.Fatalf("extract %q: %v", fams[0], err)
+	}
+	tmp := t.TempDir() + "/face.ttf"
+	if err := os.WriteFile(tmp, single, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	faces := facesInFile(tmp)
+	if len(faces) != 1 {
+		t.Fatalf("extracted %d faces", len(faces))
+	}
+	if got := styleScore(faces[0].subfamily); got != 0 {
+		t.Fatalf("picked subfamily %q scores %d, want Regular", faces[0].subfamily, got)
+	}
+}
+
+func realFont(t *testing.T, base string) string {
+	t.Helper()
+	for _, dir := range FontDirs() {
+		p := filepath.Join(dir, base)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+func realCollection(t *testing.T) string {
+	t.Helper()
+	for _, dir := range FontDirs() {
+		var found string
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if found != "" || err != nil || d.IsDir() {
+				return nil
+			}
+			if ext := strings.ToLower(filepath.Ext(path)); ext == ".ttc" || ext == ".dfont" {
+				found = path
+			}
+			return nil
+		})
+		if found != "" {
+			return found
+		}
+	}
+	t.Skip("no font collections on this machine")
+	return ""
+}
+
+func copyFile(t *testing.T, src, dst string) {
+	t.Helper()
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

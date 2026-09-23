@@ -1153,6 +1153,39 @@ func (a *App) scanFonts() {
 	a.fontList = list
 	a.fontMu.Unlock()
 	close(a.fontScanned)
+	fyne.Do(a.reconcileSavedFont)
+}
+
+// reconcileSavedFont re-resolves the persisted family through the fresh
+// scan. An older version may have stored a Bold/Italic file for the
+// family; the scan now knows the Regular one, so the stored path is
+// corrected once and the reader typeface follows.
+func (a *App) reconcileSavedFont() {
+	path := a.prefs().StringWithFallback("readerFontPath", "")
+	family := a.prefs().StringWithFallback("readerFontFamily", "")
+	if path == "" || family == "" {
+		return
+	}
+	scanned := ""
+	a.fontMu.RLock()
+	for _, f := range a.fontList {
+		if strings.EqualFold(f.Family, family) {
+			scanned = f.Path
+			break
+		}
+	}
+	a.fontMu.RUnlock()
+	if scanned == "" || scanned == path {
+		return
+	}
+	data, err := LoadFontFace(scanned, family)
+	if err != nil {
+		return
+	}
+	a.readerFont = fyne.NewStaticResource(filepath.Base(scanned), data)
+	a.prefs().SetString("readerFontPath", scanned)
+	a.applyThemePref()
+	a.orp.Refresh()
 }
 
 // loadSavedFont restores the persisted reader typeface, falling back to

@@ -64,18 +64,33 @@ var fontExtensions = map[string]bool{
 
 // ScanSystemFonts walks dirs and returns loadable families sorted by name.
 // Unreadable, unparseable, and nameless files are skipped, so everything
-// returned can actually be rendered. The first path wins per family.
+// returned can actually be rendered. Each family maps to its Regular (or
+// default) face: a Bold file sorting first lexically must never win the
+// family. Ties keep the first path, so user-installed fonts still win.
 func ScanSystemFonts(dirs []string) []SystemFont {
-	seen := map[string]bool{}
-	var out []SystemFont
+	type best struct {
+		fam   string
+		path  string
+		score int
+	}
+	kept := map[string]*best{}
+	var order []string
 	add := func(path string) {
-		for _, fam := range familiesInFile(path) {
-			key := strings.ToLower(fam)
-			if key == "" || seen[key] {
+		for _, fc := range facesInFile(path) {
+			if fc.family == "" {
 				continue
 			}
-			seen[key] = true
-			out = append(out, SystemFont{Family: fam, Path: path})
+			key := strings.ToLower(fc.family)
+			score := styleScore(fc.subfamily)
+			if b, ok := kept[key]; ok {
+				if score >= b.score {
+					continue
+				}
+				b.path, b.score = path, score
+				continue
+			}
+			kept[key] = &best{fam: fc.family, path: path, score: score}
+			order = append(order, key)
 		}
 	}
 	for _, root := range dirs {
@@ -101,15 +116,38 @@ func ScanSystemFonts(dirs []string) []SystemFont {
 			return nil
 		})
 	}
+	var out []SystemFont
+	for _, key := range order {
+		out = append(out, SystemFont{Family: kept[key].fam, Path: kept[key].path})
+	}
 	sort.Slice(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Family) < strings.ToLower(out[j].Family)
 	})
 	return out
 }
 
-// familiesInFile returns the distinct family names in one font file,
-// empty when the file cannot be parsed or names nothing.
-func familiesInFile(path string) []string {
+// styleScore ranks faces for the family default: Regular and its aliases
+// first, unknown subfamilies next, named styles (Bold, Italic, …) last.
+func styleScore(subfamily string) int {
+	switch strings.ToLower(strings.TrimSpace(subfamily)) {
+	case "", "regular", "roman", "normal", "plain", "book":
+		return 0
+	case "unknown":
+		return 1
+	default:
+		return 2
+	}
+}
+
+// fontFace is one face in a file with its style for default ranking.
+type fontFace struct {
+	family    string
+	subfamily string
+}
+
+// facesInFile returns one entry per face in the file, empty when the file
+// cannot be parsed or names nothing.
+func facesInFile(path string) []fontFace {
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 {
 		return nil
@@ -118,30 +156,51 @@ func familiesInFile(path string) []string {
 	if err != nil || len(loaders) == 0 {
 		return nil
 	}
-	var out []string
-	seen := map[string]bool{}
+	var out []fontFace
 	for _, ld := range loaders {
-		raw, err := ld.RawTable(ot.MustNewTag("name"))
-		if err != nil {
+		fam, sub := loaderNames(ld)
+		if fam == "" {
 			continue
 		}
-		names, _, err := tables.ParseName(raw)
-		if err != nil {
-			continue
-		}
-		fam := firstNonEmpty(
-			names.Name(tables.NameID(16)), // typographic family
-			names.Name(tables.NameID(21)), // WWS family
-			names.Name(tables.NameID(1)),  // font family
-		)
-		fam = strings.TrimSpace(fam)
-		if fam == "" || seen[strings.ToLower(fam)] {
-			continue
-		}
-		seen[strings.ToLower(fam)] = true
-		out = append(out, fam)
+		out = append(out, fontFace{family: fam, subfamily: sub})
 	}
 	return out
+}
+
+// familiesInFile returns the distinct family names in one font file,
+// empty when the file cannot be parsed or names nothing.
+func familiesInFile(path string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, fc := range facesInFile(path) {
+		if key := strings.ToLower(fc.family); !seen[key] {
+			seen[key] = true
+			out = append(out, fc.family)
+		}
+	}
+	return out
+}
+
+// loaderNames reads a face's family and style from its name table.
+func loaderNames(ld *ot.Loader) (family, subfamily string) {
+	raw, err := ld.RawTable(ot.MustNewTag("name"))
+	if err != nil {
+		return "", ""
+	}
+	names, _, err := tables.ParseName(raw)
+	if err != nil {
+		return "", ""
+	}
+	family = firstNonEmpty(
+		names.Name(tables.NameID(16)), // typographic family
+		names.Name(tables.NameID(21)), // WWS family
+		names.Name(tables.NameID(1)),  // font family
+	)
+	subfamily = firstNonEmpty(
+		names.Name(tables.NameID(17)), // typographic subfamily
+		names.Name(tables.NameID(2)),  // subfamily
+	)
+	return strings.TrimSpace(family), strings.TrimSpace(subfamily)
 }
 
 // LoadFontFace returns standalone single-font bytes Fyne can render:
@@ -182,28 +241,30 @@ func ExtractFace(data []byte, family string) ([]byte, error) {
 	if err != nil || len(loaders) == 0 {
 		return nil, errFontUnloadable("<memory>")
 	}
+	var fallback *ot.Loader
+	bestScore := 99
 	for _, ld := range loaders {
-		if fam := loaderFamily(ld); fam != "" && (family == "" || strings.EqualFold(fam, family)) {
-			return repackFace(ld)
+		fam, sub := loaderNames(ld)
+		if fam == "" || (family != "" && !strings.EqualFold(fam, family)) {
+			continue
+		}
+		if sc := styleScore(sub); sc < bestScore {
+			bestScore = sc
+			fallback = ld
+			if sc == 0 {
+				break
+			}
 		}
 	}
-	return nil, fmt.Errorf("family %q not found in font collection", family)
+	if fallback == nil {
+		return nil, fmt.Errorf("family %q not found in font collection", family)
+	}
+	return repackFace(fallback)
 }
 
 func loaderFamily(ld *ot.Loader) string {
-	raw, err := ld.RawTable(ot.MustNewTag("name"))
-	if err != nil {
-		return ""
-	}
-	names, _, err := tables.ParseName(raw)
-	if err != nil {
-		return ""
-	}
-	return firstNonEmpty(
-		names.Name(tables.NameID(16)),
-		names.Name(tables.NameID(21)),
-		names.Name(tables.NameID(1)),
-	)
+	fam, _ := loaderNames(ld)
+	return fam
 }
 
 // repackFace serializes one collection face as a standalone sfnt file.
