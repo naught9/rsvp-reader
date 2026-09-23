@@ -32,6 +32,20 @@ go build -o rsvp ./cmd/rsvp
 ./rsvp [book.epub]
 ```
 
+## macOS app bundle
+
+`go run` shows a generic `exec` icon in the dock. For the real thing with the app icon, package it (requires Xcode command-line tools):
+
+```bash
+go install fyne.io/tools/cmd/fyne@latest
+fyne package -os darwin -src ./cmd/rsvp -icon Icon.png \
+  -app-id com.rsvp.reader -name "RSVP Reader" -app-version 0.1.0 -app-build 1
+```
+
+Drag the resulting `RSVP Reader.app` into `/Applications` (or `~/Applications`).
+First launch needs a right-click → Open, since the bundle is unsigned.
+`FyneApp.toml` carries the bundle metadata; `Icon.png` is the 1024px source.
+
 ## Keyboard shortcuts
 
 | Key | Action |
