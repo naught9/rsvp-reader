@@ -91,23 +91,41 @@ var contextBreak = widget.RichTextStyle{Inline: false}
 // time: dimmed white on the near-black canvas, full ink on light surfaces
 // where the dimmed rung falls below legibility.
 func contextBodyStyle() widget.RichTextStyle {
+	return contextBodyForVariant(isLightVariant())
+}
+
+func contextBodyForVariant(light bool) widget.RichTextStyle {
 	name := theme.ColorNameDisabled
-	if fyne.CurrentApp() != nil &&
-		fyne.CurrentApp().Settings().ThemeVariant() == theme.VariantLight {
+	if light {
 		name = theme.ColorNameForeground
 	}
 	return widget.RichTextStyle{Inline: true, ColorName: name, TextStyle: ctxMeasureStyle}
 }
 
-var (
-	// Active word: theme red only, echoing the ORP focal letter. No bold:
-	// weight changes advance width and the line shivers as it moves.
-	contextActive = widget.RichTextStyle{
+// contextActiveStyle marks the current word by contrast, never hue: a
+// step up to full ink (dark) or full ink plus underline (light, where
+// the body already sits at full ink and brightness cannot step further).
+// No bold: weight changes advance width and the line shivers as it moves.
+func contextActiveStyle() widget.RichTextStyle {
+	return contextActiveForVariant(isLightVariant())
+}
+
+func contextActiveForVariant(light bool) widget.RichTextStyle {
+	st := widget.RichTextStyle{
 		Inline:    true,
-		ColorName: theme.ColorNameError,
+		ColorName: theme.ColorNameForeground,
 		TextStyle: ctxMeasureStyle,
 	}
-)
+	if light {
+		st.TextStyle.Underline = true
+	}
+	return st
+}
+
+func isLightVariant() bool {
+	return fyne.CurrentApp() != nil &&
+		fyne.CurrentApp().Settings().ThemeVariant() == theme.VariantLight
+}
 
 // ctxLine is one laid-out row: word indices plus whether a paragraph
 // break opens before it (rendered as a blank row).
@@ -179,10 +197,11 @@ func renderLines(words []string, lines []ctxLine, lo, hi, pos int) ([]widget.Ric
 			segs = append(segs, &widget.TextSegment{Style: contextBreak, Text: " "})
 			rows++
 		}
+		active := contextActiveStyle()
 		for vi, wi := range lines[li].words {
 			st := contextBodyStyle()
 			if wi == pos {
-				st = contextActive
+				st = active
 				activeRow = rows
 			}
 			segs = append(segs, &widget.TextSegment{Style: st, Text: words[wi]})

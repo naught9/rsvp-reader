@@ -16,7 +16,7 @@ func textSize() float32 { return theme.Size(theme.SizeNameText) }
 
 func activeText(segs []widget.RichTextSegment) string {
 	for _, s := range segs {
-		if ts, ok := s.(*widget.TextSegment); ok && ts.Style == contextActive {
+		if ts, ok := s.(*widget.TextSegment); ok && ts.Style.ColorName == theme.ColorNameForeground {
 			return ts.Text
 		}
 	}
@@ -216,7 +216,7 @@ func TestContextUsesReaderFontSlot(t *testing.T) {
 	// slot (shared with the ORP display); measuring must use the same
 	// style or the wrap drifts from what's drawn.
 	for name, st := range map[string]fyne.TextStyle{
-		"body": contextBodyStyle().TextStyle, "active": contextActive.TextStyle,
+		"body": contextBodyStyle().TextStyle, "active": contextActiveStyle().TextStyle,
 	} {
 		if !st.Monospace {
 			t.Fatalf("%s style left the reader font slot", name)
@@ -247,5 +247,22 @@ func TestRenderLinesEllipses(t *testing.T) {
 		if ts, ok := s.(*widget.TextSegment); ok && (ts.Text == "… " || ts.Text == " …") {
 			t.Fatalf("untruncated window shows ellipsis")
 		}
+	}
+}
+
+func TestContextContrastBothVariants(t *testing.T) {
+	// Dark: dimmed body, full-ink active, no underline needed.
+	if got := contextBodyForVariant(false).ColorName; got != theme.ColorNameDisabled {
+		t.Fatalf("dark body = %q", got)
+	}
+	if st := contextActiveForVariant(false); st.ColorName != theme.ColorNameForeground || st.TextStyle.Underline {
+		t.Fatalf("dark active = %+v", st)
+	}
+	// Light: body already full ink, so the active word underlines.
+	if got := contextBodyForVariant(true).ColorName; got != theme.ColorNameForeground {
+		t.Fatalf("light body = %q", got)
+	}
+	if st := contextActiveForVariant(true); st.ColorName != theme.ColorNameForeground || !st.TextStyle.Underline {
+		t.Fatalf("light active = %+v", st)
 	}
 }
