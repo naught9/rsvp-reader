@@ -188,3 +188,25 @@ func TestContextPaneShrinkable(t *testing.T) {
 		t.Fatalf("pane floor = %vpx, blocks shrinking", w)
 	}
 }
+
+func TestRewrapOnShrink(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.toggleContext()
+	a.updateContext()
+	laidOut := a.ctxWidth
+	// Simulate a divider shrink leaving a wide layout behind: the next
+	// refresh must re-anchor instead of keeping the stale wrap.
+	a.ctxWidth = laidOut + 500
+	a.rewrapIfNeeded(0)
+	// Re-anchored near the true width (headless sizes wobble a few px
+	// between refreshes), not 500px away on the stale layout.
+	if d := a.ctxWidth - laidOut; d < -8 || d > 8 {
+		t.Fatalf("shrink kept width %.0f, want re-anchor near %.0f", a.ctxWidth, laidOut)
+	}
+	// Steady width: no rebuild (same layout object kept working).
+	before := a.ctxLines
+	a.rewrapIfNeeded(0)
+	if len(a.ctxLines) != len(before) {
+		t.Fatalf("steady width rebuilt the layout")
+	}
+}

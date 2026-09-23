@@ -79,7 +79,9 @@ type App struct {
 	contextHead     *canvas.Text
 	contextHeadText string
 	contextScroll   *container.Scroll
+	contextWrap     *fyne.Container
 	contextPane     fyne.CanvasObject
+	ctxWatchW       uint32
 	ctxLines        []ctxLine
 	ctxLo, ctxHi    int
 	ctxWidth        float32

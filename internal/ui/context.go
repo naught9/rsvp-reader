@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"math"
+	"sync/atomic"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -189,10 +192,14 @@ func (a *App) buildContextPane() {
 	a.contextScroll = container.NewScroll(
 		container.NewVBox(layout.NewSpacer(), a.contextRich, layout.NewSpacer()))
 	a.contextScroll.SetMinSize(fyne.NewSize(contextMinWidth, 0))
+	// The watcher re-anchors the wrap whenever a divider drag (or any
+	// resize) moves the pane width: without it, shrinking only clips the
+	// stale lines because nothing else refreshes while paused.
+	a.contextWrap = container.New(newRewrapLayout(a.onPaneWidth), a.contextScroll)
 	body := container.NewBorder(
 		container.NewVBox(a.contextHead, widget.NewSeparator()),
 		nil, widget.NewSeparator(), nil,
-		container.NewPadded(a.contextScroll))
+		container.NewPadded(a.contextWrap))
 	a.contextPane = container.NewBorder(
 		newMirrorSpacer(a.topWrap), newMirrorSpacer(a.bottomWrap),
 		nil, nil, body)
@@ -289,6 +296,53 @@ func (a *App) syncContextHead() {
 	a.contextHeadText = label
 	a.contextHead.Text = label
 	a.contextHead.Refresh()
+}
+
+// rewrapLayout is a pass-through layout reporting its width on every
+// arrange, so divider drags re-anchor the pane's line wrap.
+type rewrapLayout struct{ onWidth func(float32) }
+
+func newRewrapLayout(onWidth func(float32)) rewrapLayout { return rewrapLayout{onWidth} }
+
+func (l rewrapLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+	if len(objs) > 0 {
+		objs[0].Resize(size)
+	}
+	l.onWidth(size.Width)
+}
+
+func (l rewrapLayout) MinSize(objs []fyne.CanvasObject) fyne.Size {
+	if len(objs) == 0 {
+		return fyne.NewSize(0, 0)
+	}
+	return objs[0].MinSize()
+}
+
+// onPaneWidth re-anchors the wrap once the pane width actually moves;
+// layout runs off the main thread, so the refresh marshals over.
+func (a *App) onPaneWidth(w float32) {
+	if !a.contextOn || a.book == nil {
+		return
+	}
+	last := math.Float32frombits(atomic.LoadUint32(&a.ctxWatchW))
+	if math.Abs(float64(w-last)) < 4 {
+		return
+	}
+	atomic.StoreUint32(&a.ctxWatchW, math.Float32bits(w))
+	fyne.Do(func() { a.rewrapIfNeeded(w) })
+}
+
+// rewrapIfNeeded refreshes once resizes leave the laid-out width
+// behind. Widths are compared at the RichText basis updateContext uses;
+// w (the watcher's width) only trips the dispatch guard above.
+func (a *App) rewrapIfNeeded(w float32) {
+	if !a.contextOn || a.book == nil || a.contextRich == nil {
+		return
+	}
+	rw := a.contextRich.Size().Width - 2*theme.Padding()
+	if rw < a.ctxWidth-8 || rw > a.ctxWidth+8 {
+		a.updateContext()
+	}
 }
 
 // toggleContext flips the glance pane, persists the choice, and rebuilds
