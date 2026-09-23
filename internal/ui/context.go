@@ -10,17 +10,18 @@ import (
 
 // contextRadius is the words shown on each side of the active word: the
 // glance pane reads like a book page around the current position.
-const contextRadius = 30
+const contextRadius = 60
 
 var (
 	contextPlain = widget.RichTextStyle{Inline: true}
 	contextBreak = widget.RichTextStyle{Inline: false}
 	contextDim   = widget.RichTextStyle{Inline: true, ColorName: theme.ColorNameDisabled}
-	// Active word: bold theme red, echoing the ORP focal letter.
+	// Active word: theme red only, echoing the ORP focal letter. No bold:
+	// weight changes advance width and the line shivers as the highlight
+	// moves.
 	contextActive = widget.RichTextStyle{
 		Inline:    true,
 		ColorName: theme.ColorNameError,
-		TextStyle: fyne.TextStyle{Bold: true},
 	}
 )
 
