@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -35,12 +36,12 @@ type App struct {
 	titleLabel    *widget.Label
 	tree          *widget.Tree
 	orp           *ORPWidget
-	playBtn       *widget.Button
-	prevBtn       *widget.Button
-	nextBtn       *widget.Button
+	playBtn       *PillButton
+	prevBtn       *PillButton
+	nextBtn       *PillButton
 	wpmSlider     *widget.Slider
-	wpmLabel      *widget.Label
-	progress      *widget.ProgressBar
+	wpmEntry      *widget.Entry
+	progress      *SlimProgress
 	progressLabel *widget.Label
 	sectionLabel  *widget.Label
 	statusLabel   *widget.Label
@@ -51,6 +52,12 @@ type App struct {
 	loadingLabel  *widget.Label
 	loadingScreen fyne.CanvasObject
 	root          *fyne.Container
+	topWrap       *fyne.Container
+	bottomWrap    *fyne.Container
+	detector      *activityDetector
+	hideTimer     *time.Timer
+	chromeHidden  bool
+	syncingWPM    bool
 
 	tickTimer   *time.Timer
 	importGen   int
@@ -107,36 +114,51 @@ func (a *App) buildWidgets() {
 	a.orp.Highlight = a.prefHighlight()
 	a.orp.FontSize = float32(a.prefFontSize())
 
-	a.playBtn = widget.NewButton("Play", a.togglePlay)
-	a.playBtn.Importance = widget.HighImportance
+	a.playBtn = NewPillButton("Play", a.togglePlay)
+	a.playBtn.Bold = true
 	a.playBtn.Disable()
 
-	prevBtn := widget.NewButton("Previous", func() { a.step(-1) })
-	nextBtn := widget.NewButton("Next", func() { a.step(1) })
+	prevBtn := NewPillButton("Previous", func() { a.step(-1) })
+	nextBtn := NewPillButton("Next", func() { a.step(1) })
 	prevBtn.Disable()
 	nextBtn.Disable()
 	a.prevBtn, a.nextBtn = prevBtn, nextBtn
 
+	a.wpmEntry = widget.NewEntry()
+	a.wpmEntry.SetText(fmt.Sprintf("%d", reader.SnapWPM(a.prefWPM())))
+	a.wpmEntry.OnSubmitted = func(s string) {
+		s = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(s), "wpm"))
+		var v int
+		if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
+			a.wpmEntry.SetText(fmt.Sprintf("%d", a.currentWPM()))
+			return
+		}
+		a.setWPM(v)
+		a.saveProgress("")
+		a.poke()
+	}
+
 	a.wpmSlider = widget.NewSlider(reader.MinWPM, reader.MaxWPM)
 	a.wpmSlider.Step = reader.StepWPM
-	a.wpmSlider.SetValue(float64(reader.SnapWPM(a.prefWPM())))
 	a.wpmSlider.OnChanged = func(v float64) {
-		wpm := reader.SnapWPM(int(v + 0.5))
-		if a.player != nil {
-			a.player.SetWPM(wpm)
+		if a.syncingWPM {
+			return
 		}
-		a.prefs().SetInt("wpm", wpm)
-		a.updateWPMLabel()
+		a.setWPM(reader.SnapWPM(int(v + 0.5)))
+		a.saveProgress("")
+		a.poke()
 	}
-	a.wpmLabel = widget.NewLabel("")
-	a.updateWPMLabel()
+	a.wpmSlider.SetValue(float64(reader.SnapWPM(a.prefWPM())))
 
-	a.progress = widget.NewProgressBar()
+	a.progress = NewSlimProgress()
 	a.progressLabel = widget.NewLabel("No book open")
 	a.sectionLabel = widget.NewLabel("")
 	a.sectionLabel.TextStyle = fyne.TextStyle{Bold: true}
 	a.statusLabel = widget.NewLabel("")
 	a.statusLabel.Wrapping = fyne.TextWrapWord
+	a.statusLabel.Hide() // collapsed until there is something to say
+
+	a.detector = newActivityDetector(a.poke, a.togglePlay)
 
 	a.tree = widget.NewTree(
 		func(uid string) []string { return a.childUIDs(uid) },
@@ -170,19 +192,25 @@ func (a *App) buildWidgets() {
 }
 
 func (a *App) topBar() *fyne.Container {
-	openBtn := widget.NewButton("Open EPUB", a.showOpenDialog)
-	toggleBtn := widget.NewButton("Contents", a.toggleContents)
-	settingsBtn := widget.NewButton("Settings", a.showSettings)
+	openBtn := NewPillButton("Open EPUB", a.showOpenDialog)
+	toggleBtn := NewPillButton("Contents", a.toggleContents)
+	settingsBtn := NewPillButton("Settings", a.showSettings)
 	bar := container.NewBorder(nil, nil, nil,
-		container.NewHBox(toggleBtn, settingsBtn, openBtn), a.titleLabel)
+		container.NewHBox(toggleBtn, pillGap(), settingsBtn, pillGap(), openBtn), a.titleLabel)
 	return container.NewVBox(bar, widget.NewSeparator())
 }
 
 func (a *App) bottomBar() *fyne.Container {
-	controls := container.NewHBox(a.prevBtn, a.playBtn, a.nextBtn,
-		widget.NewLabel("Speed"), a.wpmSlider, a.wpmLabel)
-	return container.NewVBox(widget.NewSeparator(), a.sectionLabel, controls, a.progress, a.progressLabel, a.statusLabel)
+	transport := container.NewHBox(a.prevBtn, pillGap(), a.playBtn, pillGap(), a.nextBtn)
+	speedBox := container.NewHBox(widget.NewLabel("Speed"),
+		container.NewGridWrap(fyne.NewSize(76, a.wpmEntry.MinSize().Height), a.wpmEntry))
+	deck := container.NewBorder(nil, nil, transport, speedBox)
+	return container.NewVBox(widget.NewSeparator(), a.sectionLabel, deck,
+		a.wpmSlider, a.progress, a.progressLabel, a.statusLabel)
 }
+
+// buildReaderScreen assembles the reader view and remembers the chrome
+// wrappers so zen mode can hide them.
 
 func (a *App) readerCenter() fyne.CanvasObject {
 	if a.contentsOn {
@@ -192,19 +220,30 @@ func (a *App) readerCenter() fyne.CanvasObject {
 	return container.NewCenter(a.orp)
 }
 
+func (a *App) buildReaderScreen() {
+	a.topWrap = a.topBar()
+	a.bottomWrap = a.bottomBar()
+	center := container.NewStack(a.detector, a.readerCenter())
+	a.readerScreen = container.NewBorder(a.topWrap, a.bottomWrap, nil, nil, center)
+	if a.chromeHidden && a.book != nil {
+		a.topWrap.Hide()
+		a.bottomWrap.Hide()
+	}
+}
+
 func (a *App) buildLayout() {
-	a.readerScreen = container.NewBorder(a.topBar(), a.bottomBar(), nil, nil, a.readerCenter())
+	a.buildReaderScreen()
 
 	emptyTitle := widget.NewLabel("RSVP Reader")
 	emptyTitle.TextStyle = fyne.TextStyle{Bold: true}
-	emptyOpen := widget.NewButton("Open EPUB", a.showOpenDialog)
-	emptyOpen.Importance = widget.HighImportance
+	emptyOpen := NewPillButton("Open EPUB", a.showOpenDialog)
+	emptyOpen.Bold = true
 	a.emptyScreen = container.NewCenter(container.NewVBox(
 		emptyTitle, widget.NewLabel("One word at a time, at a fixed focal point."),
 		emptyOpen, widget.NewLabel("Recent books:"), a.recentBox,
 	))
 
-	cancelBtn := widget.NewButton("Cancel", a.cancelImport)
+	cancelBtn := NewPillButton("Cancel", a.cancelImport)
 	a.loadingScreen = container.NewCenter(container.NewVBox(
 		a.loadingLabel, a.loadingBar, cancelBtn,
 	))
@@ -360,7 +399,7 @@ func (a *App) setBook(book *epub.Book, path string) {
 		}
 		return ""
 	}
-	a.wpmSlider.SetValue(float64(wpm))
+	a.setWPM(wpm)
 	a.buildTOCModel()
 	a.titleLabel.SetText(bookTitle(book))
 	if book.TOCWarning != "" {
@@ -371,10 +410,8 @@ func (a *App) setBook(book *epub.Book, path string) {
 	// Restore last position and settings for this fingerprint.
 	if a.db != nil {
 		if p, ok := a.db.Lookup(book.Fingerprint); ok {
-			a.player.SetWPM(reader.ClampWPM(p.WPM))
-			a.wpmSlider.SetValue(float64(a.player.WPM()))
+			a.setWPM(reader.ClampWPM(p.WPM))
 			a.player.Seek(p.WordIndex)
-			a.updateWPMLabel()
 		}
 		_ = a.db.Save(store.Progress{
 			Fingerprint: book.Fingerprint, Path: path,
@@ -387,6 +424,8 @@ func (a *App) setBook(book *epub.Book, path string) {
 	a.prevBtn.Enable()
 	a.nextBtn.Enable()
 	a.playBtn.SetText("Play")
+	a.chromeHidden = false
+	a.cancelHideTimer()
 	a.refreshAll()
 }
 
@@ -477,12 +516,13 @@ func (a *App) onTOCSelected(uid string) {
 	a.setStatus(fmt.Sprintf("Section: %s", it.Label))
 	a.refreshAll()
 	a.saveProgress(it.TargetHref)
+	a.syncChrome()
 }
 
 func (a *App) toggleContents() {
 	// HSplit has no collapse; swap the reader center with/without the tree.
 	a.contentsOn = !a.contentsOn
-	a.readerScreen = container.NewBorder(a.topBar(), a.bottomBar(), nil, nil, a.readerCenter())
+	a.buildReaderScreen()
 	a.root.Objects[1] = a.readerScreen
 	a.root.Refresh()
 	if a.book != nil {
@@ -518,6 +558,7 @@ func (a *App) togglePlay() {
 		a.scheduleTick()
 	}
 	a.refreshAll()
+	a.syncChrome()
 }
 
 func (a *App) wasResumed() bool { return a.lastSave.IsZero() == false || a.player.Pos() != 0 }
@@ -542,22 +583,22 @@ func (a *App) step(dir int) {
 	if moved {
 		a.saveProgress("")
 	}
+	a.syncChrome()
 }
 
 func (a *App) bumpWPM(delta int) {
 	if a.player == nil {
 		return
 	}
+	wpm := a.player.WPM()
 	if delta > 0 {
-		a.player.StepUp()
+		wpm += reader.StepWPM
 	} else {
-		a.player.StepDown()
+		wpm -= reader.StepWPM
 	}
-	a.wpmSlider.SetValue(float64(a.player.WPM()))
-	a.prefs().SetInt("wpm", a.player.WPM())
-	a.updateWPMLabel()
-	a.refreshProgress()
+	a.setWPM(wpm)
 	a.saveProgress("")
+	a.poke()
 }
 
 func (a *App) scheduleTick() {
@@ -599,6 +640,7 @@ func (a *App) onEnded() {
 	a.playBtn.SetText("Restart")
 	a.setStatus("End of book — Restart or choose another section.")
 	a.saveProgress("")
+	a.syncChrome()
 }
 
 // ---------- refresh ----------
@@ -627,7 +669,6 @@ func (a *App) refreshProgress() {
 	a.sectionLabel.SetText("Section: " + sec)
 	a.progressLabel.SetText(fmt.Sprintf("%d / %d (%.1f%%) · %s left · %d WPM",
 		pos+1, total, pct, a.player.TimeRemaining(), a.player.WPM()))
-	a.updateWPMLabel()
 }
 
 func (a *App) syncTreeSelection() {
@@ -647,15 +688,37 @@ func (a *App) syncTreeSelection() {
 	a.syncingTree = false
 }
 
-func (a *App) updateWPMLabel() {
-	wpm := a.prefWPM()
+// currentWPM reports the live speed, falling back to the saved preference.
+func (a *App) currentWPM() int {
 	if a.player != nil {
-		wpm = a.player.WPM()
+		return a.player.WPM()
 	}
-	a.wpmLabel.SetText(fmt.Sprintf("%d WPM", wpm))
+	return reader.SnapWPM(a.prefWPM())
 }
 
-func (a *App) setStatus(s string) { a.statusLabel.SetText(s) }
+// setWPM applies an exact speed everywhere: player, slider position,
+// numeric entry, and saved preference. Position never moves.
+func (a *App) setWPM(wpm int) {
+	wpm = reader.ClampWPM(wpm)
+	if a.player != nil {
+		a.player.SetWPM(wpm)
+	}
+	a.syncingWPM = true
+	a.wpmSlider.SetValue(float64(wpm))
+	a.syncingWPM = false
+	a.wpmEntry.SetText(fmt.Sprintf("%d", wpm))
+	a.prefs().SetInt("wpm", wpm)
+	a.refreshProgress()
+}
+
+func (a *App) setStatus(s string) {
+	if s == "" {
+		a.statusLabel.Hide()
+		return
+	}
+	a.statusLabel.SetText(s)
+	a.statusLabel.Show()
+}
 
 // ---------- persistence ----------
 
@@ -695,6 +758,7 @@ func (a *App) currentPath() string {
 
 func (a *App) onClose() {
 	a.cancelTick()
+	a.cancelHideTimer()
 	a.saveProgress("")
 	a.win.Close()
 }
@@ -714,7 +778,7 @@ func (a *App) refreshRecent() {
 			label = fmt.Sprintf("%s (%s)", label, shortPath(p.Path))
 		}
 		path := p.Path
-		a.recentBox.Add(widget.NewButton(label, func() { a.openBook(path) }))
+		a.recentBox.Add(NewPillButton(label, func() { a.openBook(path) }))
 	}
 	if len(a.recentBox.Objects) == 0 {
 		a.recentBox.Add(widget.NewLabel("No recent books yet."))

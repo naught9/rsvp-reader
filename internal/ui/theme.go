@@ -90,3 +90,13 @@ func (t *scandiTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 func (t *scandiTheme) Size(name fyne.ThemeSizeName) float32 {
 	return t.base.Size(name)
 }
+
+// secondaryInk returns the supporting-ink rung for the current variant:
+// soft white on the near-black canvas, soft black on light surfaces.
+func secondaryInk() color.Color {
+	if fyne.CurrentApp() != nil &&
+		fyne.CurrentApp().Settings().ThemeVariant() == theme.VariantLight {
+		return color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x8f} // ~56%
+	}
+	return color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x8f} // ~56%
+}

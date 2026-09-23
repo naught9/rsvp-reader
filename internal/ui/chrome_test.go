@@ -13,8 +13,8 @@ import (
 func TestScandiChrome(t *testing.T) {
 	a, _ := newTestApp(t)
 
-	if a.playBtn.Importance != widget.HighImportance {
-		t.Fatalf("Play importance = %v, want the single filled primary action", a.playBtn.Importance)
+	if !a.playBtn.Bold {
+		t.Fatalf("Play should carry label weight as the primary action, not a competing fill")
 	}
 	switch a.playBtn.Text {
 	case "Play", "Pause", "Resume", "Restart":
@@ -24,7 +24,7 @@ func TestScandiChrome(t *testing.T) {
 	if a.prevBtn.Text != "Previous" || a.nextBtn.Text != "Next" {
 		t.Fatalf("transport labels = %q/%q, want words, not bare glyphs", a.prevBtn.Text, a.nextBtn.Text)
 	}
-	if a.prevBtn.Importance == widget.HighImportance || a.nextBtn.Importance == widget.HighImportance {
+	if a.prevBtn.Bold || a.nextBtn.Bold {
 		t.Fatalf("secondary transport controls must stay quiet")
 	}
 
