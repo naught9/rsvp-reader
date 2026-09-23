@@ -13,12 +13,63 @@ import (
 // and rendered with wrapping off, so line breaks, the active line, and
 // scroll offsets are exact — never estimated from the renderer's layout.
 const (
-	// contextLayoutRadius bounds the words laid out around the position
-	// to find lines; contextLineRadius is the lines shown each side of
-	// the active one.
-	contextLayoutRadius = 90
-	contextLineRadius   = 8
+	// contextLineRadius is the lines shown each side of the active one;
+	// contextPrefetch is the extra lines laid out beyond that before the
+	// layout re-anchors, so below-context never drains mid-page.
+	contextLineRadius = 8
+	contextPrefetch   = 4
 )
+
+// layoutCovers reports whether the layout holds the active line with a
+// full radius of lines on each side, excusing sides the book edge makes
+// impossible to grow.
+func layoutCovers(nwords, ctxLo, ctxHi, nlines, line int) bool {
+	if line < 0 {
+		return false
+	}
+	need := contextLineRadius + contextPrefetch
+	if line < need && ctxLo > 0 {
+		return false
+	}
+	if line > nlines-1-need && ctxHi < nwords-1 {
+		return false
+	}
+	return true
+}
+
+// anchorLayout lays out words around pos until the active line holds a
+// full radius of lines on each growable side. Word counts can't predict
+// line counts (narrow words, paragraph breaks), so the window extends
+// until coverage holds or the book edge stops it.
+func anchorLayout(words []string, starts map[int]bool, pos, nwords int, width, textSize float32) ([]ctxLine, int, int) {
+	need := contextLineRadius + contextPrefetch
+	const chunk = 120
+	lo, hi := pos-chunk, pos+chunk
+	for {
+		if lo < 0 {
+			lo = 0
+		}
+		if hi >= nwords {
+			hi = nwords - 1
+		}
+		lines := layoutLines(words, starts, lo, hi, width, textSize)
+		line := activeLine(lines, pos)
+		grew := false
+		if line >= 0 {
+			if line < need && lo > 0 {
+				lo -= chunk
+				grew = true
+			}
+			if line > len(lines)-1-need && hi < nwords-1 {
+				hi += chunk
+				grew = true
+			}
+		}
+		if !grew {
+			return lines, lo, hi
+		}
+	}
+}
 
 var (
 	// Quiet body copy; the active word alone carries color.
@@ -152,27 +203,32 @@ func (a *App) updateContext() {
 		return // not laid out yet; next refresh fits
 	}
 	pos := a.player.Pos()
-	if a.ctxLines == nil || pos < a.ctxLo || pos > a.ctxHi ||
-		width < a.ctxWidth-2 || width > a.ctxWidth+2 {
-		lo := pos - contextLayoutRadius
-		if lo < 0 {
-			lo = 0
-		}
-		hi := pos + contextLayoutRadius
-		if hi >= len(a.book.Words) {
-			hi = len(a.book.Words) - 1
-		}
+	nwords := len(a.book.Words)
+	line := -1
+	// A moved width re-anchors: lines wrapped for another width are
+	// wrong, and keeping them would freeze the pane. Tolerance absorbs
+	// sub-pixel noise; real resizes rebuild around the same position,
+	// so the visible window holds still.
+	widthMoved := width < a.ctxWidth-8 || width > a.ctxWidth+8
+	if a.ctxLines == nil || pos < a.ctxLo || pos > a.ctxHi || widthMoved {
+		a.ctxLines = nil
+	} else if l := activeLine(a.ctxLines, pos); layoutCovers(nwords, a.ctxLo, a.ctxHi, len(a.ctxLines), l) {
+		// Reuse the layout unless the active line is starved of lines
+		// on a side that can still grow; book edges hold by necessity.
+		line = l
+	} else {
+		a.ctxLines = nil
+	}
+	if a.ctxLines == nil {
 		starts := map[int]bool{}
 		for _, s := range a.book.ParaStarts {
-			if s >= lo && s <= hi {
-				starts[s] = true
-			}
+			starts[s] = true
 		}
-		a.ctxLines = layoutLines(a.book.Words, starts, lo, hi, width, textSize)
-		a.ctxLo, a.ctxHi, a.ctxWidth = lo, hi, width
+		a.ctxLines, a.ctxLo, a.ctxHi = anchorLayout(a.book.Words, starts, pos, nwords, width, textSize)
+		a.ctxWidth = width
 		a.ctxLine = -1
+		line = activeLine(a.ctxLines, pos)
 	}
-	line := activeLine(a.ctxLines, pos)
 	if line < 0 {
 		return
 	}

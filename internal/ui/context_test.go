@@ -4,8 +4,11 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
+	"strings"
+
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"rsvp-reader/internal/doc"
 )
 
 func textSize() float32 { return theme.Size(theme.SizeNameText) }
@@ -93,6 +96,53 @@ func TestRenderLinesActiveAndRows(t *testing.T) {
 		t.Fatalf("activeRow = %d, want 3", activeRow)
 	}
 	_ = fyne.TextStyle{}
+}
+
+func TestLayoutCovers(t *testing.T) {
+	if layoutCovers(600, 100, 500, 40, 2) {
+		t.Fatalf("starved top with room to grow holds")
+	}
+	if layoutCovers(600, 100, 500, 40, 37) {
+		t.Fatalf("starved bottom with room to grow holds")
+	}
+	if !layoutCovers(600, 0, 500, 40, 2) {
+		t.Fatalf("book start should excuse a short top")
+	}
+	if !layoutCovers(600, 100, 599, 40, 37) {
+		t.Fatalf("book end should excuse a short bottom")
+	}
+	if !layoutCovers(600, 100, 500, 40, 20) {
+		t.Fatalf("covered middle should hold")
+	}
+}
+
+// TestBelowContextNeverDrains walks a long book through the real update
+// path: below-context must hold a full radius until the book end makes
+// it impossible. Regression: the layout used to exhaust mid-page, the
+// active line sank to the bottom, and a new batch jumped in.
+func TestBelowContextNeverDrains(t *testing.T) {
+	a, _ := newTestApp(t)
+	var paras []string
+	for p := 0; p < 30; p++ {
+		var ws []string
+		for i := 0; i < 20; i++ {
+			ws = append(ws, "w")
+		}
+		paras = append(paras, strings.Join(ws, " "))
+	}
+	a.setDocument(doc.FromText("long", strings.Join(paras, "\n\n")), "long")
+	a.toggleContext()
+	a.contextRich.Resize(fyne.NewSize(300, 600))
+	nwords := len(a.book.Words)
+	for pos := 0; pos < nwords; pos += 7 {
+		a.player.Seek(pos)
+		a.updateContext()
+		line := activeLine(a.ctxLines, pos)
+		if !layoutCovers(nwords, a.ctxLo, a.ctxHi, len(a.ctxLines), line) {
+			below := len(a.ctxLines) - 1 - line
+			t.Fatalf("pos %d: layout starved, %d lines below", pos, below)
+		}
+	}
 }
 
 func TestToggleContext(t *testing.T) {
