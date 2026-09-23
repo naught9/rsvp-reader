@@ -69,16 +69,21 @@ type App struct {
 	fontList    []SystemFont
 	fontScanned chan struct{}
 
-	tickTimer   *time.Timer
-	importGen   int
-	syncingTree bool
-	contentsOn  bool
-	lastSave    time.Time
+	tickTimer     *time.Timer
+	importGen     int
+	syncingTree   bool
+	contentsOn    bool
+	contextOn     bool
+	contextRich   *widget.RichText
+	contextScroll *container.Scroll
+	contextPane   fyne.CanvasObject
+	lastSave      time.Time
 }
 
 // New builds the application. cliArg is an optional EPUB path.
 func New(fyneApp fyne.App, db *store.Store, cliArg string) *App {
 	a := &App{fyneApp: fyneApp, db: db, cliArg: cliArg, contentsOn: true, fontScanned: make(chan struct{})}
+	a.contextOn = a.prefs().BoolWithFallback("contextPane", false)
 	a.win = fyneApp.NewWindow("RSVP Reader")
 	a.loadSavedFont()
 	a.applyThemePref()
@@ -204,9 +209,10 @@ func (a *App) buildWidgets() {
 func (a *App) topBar() *fyne.Container {
 	openBtn := NewPillButton("Open file", a.showOpenDialog)
 	toggleBtn := NewPillButton("Contents", a.toggleContents)
+	contextBtn := NewPillButton("Context", a.toggleContext)
 	settingsBtn := NewPillButton("Settings", a.showSettings)
 	bar := container.NewBorder(nil, nil, nil,
-		container.NewHBox(toggleBtn, pillGap(), settingsBtn, pillGap(), openBtn), a.titleLabel)
+		container.NewHBox(toggleBtn, pillGap(), contextBtn, pillGap(), settingsBtn, pillGap(), openBtn), a.titleLabel)
 	return container.NewVBox(bar, widget.NewSeparator())
 }
 
@@ -225,6 +231,16 @@ func (a *App) bottomBar() *fyne.Container {
 // wrappers so zen mode can hide them.
 
 func (a *App) readerCenter() fyne.CanvasObject {
+	center := fyne.CanvasObject(container.NewCenter(a.orp))
+	if a.contextOn {
+		if a.contextPane == nil {
+			a.buildContextPane()
+		}
+		// Glance pane is the margin note: RSVP keeps the wide share.
+		split := container.NewHSplit(center, a.contextPane)
+		split.SetOffset(0.68)
+		center = split
+	}
 	if a.contentsOn {
 		// Tree scrolls internally; do not wrap it in another scroller.
 		// The tree pane carries gutters mirroring the floating chrome so
@@ -233,9 +249,9 @@ func (a *App) readerCenter() fyne.CanvasObject {
 		treePane := container.NewBorder(
 			newMirrorSpacer(a.topWrap), newMirrorSpacer(a.bottomWrap),
 			nil, nil, a.tree)
-		return container.NewHSplit(treePane, container.NewCenter(a.orp))
+		return container.NewHSplit(treePane, center)
 	}
-	return container.NewCenter(a.orp)
+	return center
 }
 
 func (a *App) buildReaderScreen() {
@@ -328,6 +344,11 @@ func (a *App) buildShortcuts() {
 			a.bumpWPM(reader.StepWPM)
 		case fyne.KeyDown:
 			a.bumpWPM(-reader.StepWPM)
+		case fyne.KeyC:
+			if _, ok := c.Focused().(*widget.Entry); ok {
+				return
+			}
+			a.toggleContext()
 		case fyne.KeyEscape:
 			c.Unfocus()
 		}
@@ -806,6 +827,7 @@ func (a *App) refreshAll() {
 	a.refreshWord()
 	a.refreshProgress()
 	a.syncTreeSelection()
+	a.updateContext()
 }
 
 func (a *App) refreshWord() {

@@ -10,6 +10,7 @@ Built from scratch with [Fyne](https://fyne.io/). Interaction design informed by
 - Hierarchical, collapsible table of contents; entries targeting headings inside a file start at that heading's first word (PDFs navigate by page, pasted text reads as one section)
 - RSVP playback with Optimal Recognition Point (ORP) focal-letter highlight (toggleable), 50–1000 WPM via full-width slider, arrow keys, or exact numeric entry (default 300)
 - Zen reading mode: chrome auto-hides while playing and returns on mouse move; pause always shows and holds; clicking the word toggles playback
+- Optional context pane: the surrounding paragraphs beside the RSVP word, with the active word gently highlighted and followed (toggle with the Context button or `C`)
 - Play/pause, previous/next word, ±25-word jumps, slim progress hairline (word count, %, time remaining), current-section label
 - Text cleanup for serial reading: hyphen compounds split (`this-word` → `this-` / `word`), verse line numbers and page-number marginalia pruned, unreadable PDF pages skipped with a warning instead of hanging
 - Remembers position, speed, and settings per book (keyed by content hash), plus a recent-books list
@@ -56,6 +57,7 @@ First launch needs a right-click → Open, since the bundle is unsigned.
 | Space | Play / pause |
 | Left / Right | Previous / next word (while paused) |
 | Shift+Left / Shift+Right | Back / forward 25 words |
+| C | Toggle the context pane |
 | Up / Down | Faster / slower in 25-WPM steps |
 | ⌘O | Open file |
 | Esc | Unfocus / close dialog |

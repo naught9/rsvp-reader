@@ -49,3 +49,23 @@ func TestSectionForWordDeepest(t *testing.T) {
 		t.Fatalf("ghost seek = %d %v", idx, ok)
 	}
 }
+
+func TestFromTextParagraphs(t *testing.T) {
+	d := FromText("Pasted text", "one two\n\nthree four five\n\n\nsix")
+	if len(d.Words) != 6 {
+		t.Fatalf("words = %q", d.Words)
+	}
+	want := []int{0, 2, 5}
+	if len(d.ParaStarts) != len(want) {
+		t.Fatalf("starts = %v, want %v", d.ParaStarts, want)
+	}
+	for i, s := range want {
+		if d.ParaStarts[i] != s {
+			t.Fatalf("starts = %v, want %v", d.ParaStarts, want)
+		}
+	}
+	// No blank lines: single paragraph anchored at zero.
+	if s := FromText("t", "hello world").ParaStarts; len(s) != 1 || s[0] != 0 {
+		t.Fatalf("starts = %v", s)
+	}
+}

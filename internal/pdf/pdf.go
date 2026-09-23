@@ -85,6 +85,7 @@ func OpenFile(path string) (*doc.Document, error) {
 		}
 		start := len(d.Words)
 		d.Words = append(d.Words, words...)
+		d.ParaStarts = append(d.ParaStarts, start)
 		label := fmt.Sprintf("Page %d", p)
 		ref := fmt.Sprintf("page:%d", p)
 		d.TOC = append(d.TOC, &doc.TOCItem{Label: label, StartWord: &start, Ref: ref})
@@ -98,6 +99,7 @@ func OpenFile(path string) (*doc.Document, error) {
 		}
 		return nil, fmt.Errorf("unsupported content: no readable text found in this PDF (it may be scanned images)")
 	}
+	d.ParaStarts = doc.NormalizeParaStarts(d.ParaStarts, len(d.Words))
 	return d, nil
 }
 

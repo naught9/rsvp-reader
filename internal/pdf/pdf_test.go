@@ -84,3 +84,13 @@ func TestOpenGarbage(t *testing.T) {
 		t.Fatalf("garbage PDF opened without error")
 	}
 }
+
+func TestPageStartsBreakParagraphs(t *testing.T) {
+	d, err := OpenFile(minimalPDF(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.ParaStarts) != 2 || d.ParaStarts[0] != 0 || d.ParaStarts[1] != 4 {
+		t.Fatalf("starts = %v, want [0 4]", d.ParaStarts)
+	}
+}

@@ -15,9 +15,14 @@ func FromEPUB(b *epub.Book) *Document {
 		TOCWarning:   b.TOCWarning,
 	}
 	d.Words = make([]string, len(b.Words))
+	var starts []int
 	for i, w := range b.Words {
 		d.Words[i] = w.Text
+		if w.ParaStart {
+			starts = append(starts, i)
+		}
 	}
+	d.ParaStarts = NormalizeParaStarts(starts, len(d.Words))
 	d.TOC = convertTOC(b.TOC)
 	return d
 }
