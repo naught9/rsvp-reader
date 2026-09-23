@@ -124,6 +124,9 @@ func (a *App) prefs() fyne.Preferences { return a.fyneApp.Preferences() }
 
 func (a *App) prefWPM() int        { return a.prefs().IntWithFallback("wpm", reader.DefaultWPM) }
 func (a *App) prefHighlight() bool { return a.prefs().BoolWithFallback("highlight", true) }
+func (a *App) prefSentencePause() bool {
+	return a.prefs().BoolWithFallback("sentencePause", true)
+}
 func (a *App) prefFontSize() float64 {
 	return a.prefs().FloatWithFallback("fontSize", 64)
 }
@@ -536,6 +539,7 @@ func (a *App) setDocument(d *doc.Document, sourcePath string) {
 	wpm := reader.SnapWPM(a.prefWPM())
 	a.player = reader.NewPlayer(d.Words, wpm)
 	a.player.SectionAt = d.SectionLabel
+	a.player.SentencePause = a.prefSentencePause()
 	a.setWPM(wpm)
 	a.buildTOCModel()
 	a.titleLabel.SetText(docTitle(d))
@@ -1081,8 +1085,11 @@ func (a *App) showSettings() {
 			}
 		}
 	}
+	sentencePause := widget.NewCheck("", nil)
+	sentencePause.SetChecked(a.prefSentencePause())
 	form := widget.NewForm(
 		widget.NewFormItem("Highlight", highlight),
+		widget.NewFormItem("Pause at sentence ends", sentencePause),
 		widget.NewFormItem("Font size", fontSizeSlider),
 		widget.NewFormItem("Reader font", fontPicker),
 		widget.NewFormItem("Theme", themeSel),
@@ -1097,6 +1104,10 @@ func (a *App) showSettings() {
 	applyBtn.OnTapped = func() {
 		a.orp.Highlight = highlight.Checked
 		a.prefs().SetBool("highlight", highlight.Checked)
+		a.prefs().SetBool("sentencePause", sentencePause.Checked)
+		if a.player != nil {
+			a.player.SentencePause = sentencePause.Checked
+		}
 		a.orp.FontSize = float32(fontSizeSlider.Value)
 		a.prefs().SetFloat("fontSize", fontSizeSlider.Value)
 		a.applyReaderFont(pendingFont, fontPaths)

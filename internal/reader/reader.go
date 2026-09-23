@@ -2,6 +2,7 @@ package reader
 
 import (
 	"fmt"
+	"strings"
 	"time"
 	"unicode"
 )
@@ -115,6 +116,9 @@ type Player struct {
 	ended    bool
 	wpm      int
 	deadline time.Time
+	// SentencePause lingers one extra beat on sentence-final words
+	// (your "treat the period as another word"), aiding comprehension.
+	SentencePause bool
 
 	// SectionAt maps a word index to its section label; wired by the UI
 	// from the book's TOC. Nil means no labels.
@@ -186,6 +190,43 @@ func (p *Player) Tick(now time.Time) (advanced bool) {
 	}
 	p.pos++
 	p.deadline = now.Add(Interval(p.wpm))
+	if p.SentencePause && EndsSentence(p.words[p.pos]) {
+		p.deadline = p.deadline.Add(Interval(p.wpm))
+	}
+	return true
+}
+
+// EndsSentence reports whether a word closes a sentence: trailing . ! ?
+// or ellipsis, ignoring closing quotes and brackets. Abbreviations are
+// left alone as best-effort: words with interior periods (e.g., U.S.),
+// digits (3.14), or a lone initial (J.) don't pause. "Mr." still pauses;
+// the alternative is a dictionary, deliberately out of scope.
+func EndsSentence(word string) bool {
+	w := strings.TrimRight(word, "\"'\u2019\u201d)]}")
+	if w == "" {
+		return false
+	}
+	last := w[len(w)-1]
+	if last != '.' && last != '!' && last != '?' && !strings.HasSuffix(w, "\u2026") {
+		return false
+	}
+	if strings.HasSuffix(w, "..") {
+		return true // ellipsis ("...") always breathes
+	}
+	body := strings.TrimSuffix(w, "\u2026")
+	if body == "" {
+		return true // a bare mark still breathes
+	}
+	body = body[:len(body)-1]
+	if strings.ContainsAny(body, "0123456789") {
+		return false
+	}
+	if strings.Contains(body, ".") {
+		return false
+	}
+	if len([]rune(body)) == 1 && last == '.' {
+		return false
+	}
 	return true
 }
 

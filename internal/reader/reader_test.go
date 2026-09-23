@@ -179,3 +179,42 @@ func TestTimeRemaining(t *testing.T) {
 		t.Fatalf("TimeRemaining = %q, want 1:00", got)
 	}
 }
+
+func TestEndsSentence(t *testing.T) {
+	yes := []string{"word.", "Really?", "Stop!", "so…", "wait...", "end.”", "go.')", "."}
+	no := []string{"word", "don't", "3.14", "v2.0", "e.g.", "U.S.", "J.", "12,109", "well-known", "dogs'", "—", ""}
+	for _, w := range yes {
+		if !EndsSentence(w) {
+			t.Errorf("EndsSentence(%q) = false, want true", w)
+		}
+	}
+	for _, w := range no {
+		if EndsSentence(w) {
+			t.Errorf("EndsSentence(%q) = true, want false", w)
+		}
+	}
+}
+
+func TestTickSentenceBeat(t *testing.T) {
+	now := time.Now()
+	p := NewPlayer([]string{"one", "two.", "three"}, 600) // 100ms beat
+	p.SentencePause = true
+	p.Play(now)
+	if !p.Tick(now.Add(100*time.Millisecond)) || p.Current() != "two." {
+		t.Fatalf("advance to %q", p.Current())
+	}
+	// "two." lingers: deadline two beats out, not one.
+	if d := p.Deadline().Sub(now); d != 300*time.Millisecond {
+		t.Fatalf("deadline = %v, want 300ms", d)
+	}
+	if p.Tick(now.Add(250 * time.Millisecond)) {
+		t.Fatalf("advanced mid-beat")
+	}
+	p.SentencePause = false
+	q := NewPlayer([]string{"one", "two.", "three"}, 600)
+	q.Play(now)
+	q.Tick(now.Add(100 * time.Millisecond))
+	if d := q.Deadline().Sub(now); d != 200*time.Millisecond {
+		t.Fatalf("no-pause deadline = %v, want 200ms", d)
+	}
+}

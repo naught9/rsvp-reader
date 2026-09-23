@@ -275,3 +275,16 @@ func TestOnJumpChunk(t *testing.T) {
 	}
 	a.cancelTick()
 }
+
+func TestSentencePausePref(t *testing.T) {
+	a, path := newTestApp(t)
+	if !a.player.SentencePause {
+		t.Fatalf("sentence pause should default on")
+	}
+	a.prefs().SetBool("sentencePause", false)
+	a.setDocument(a.book, path)
+	if a.player.SentencePause {
+		t.Fatalf("player should follow the pref")
+	}
+	a.cancelTick()
+}
