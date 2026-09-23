@@ -112,9 +112,10 @@ func (b *PillButton) FocusLost() {
 // Focused reports keyboard focus.
 func (b *PillButton) Focused() bool { return b.focused }
 
-// TypedKey activates on Enter/Space for keyboard users.
+// TypedKey activates on Enter for keyboard users. Space is left to the
+// window handler (play/pause) so a focused pill never toggles twice.
 func (b *PillButton) TypedKey(e *fyne.KeyEvent) {
-	if e.Name == fyne.KeyReturn || e.Name == fyne.KeyEnter || e.Name == fyne.KeySpace {
+	if e.Name == fyne.KeyReturn || e.Name == fyne.KeyEnter {
 		b.Tapped(nil)
 	}
 }

@@ -19,6 +19,7 @@ var (
 	scandiHover      = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x17} // ~9%
 	scandiPressed    = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x24} // ~14%
 	scandiSeparator  = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1f} // ~12%
+	scandiSelected   = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x24} // ~14%
 	scandiInputBG    = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x0d} // ~5%
 	scandiInputEdge  = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x2e} // ~18%
 	scandiMuted      = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x5c} // ~36%
@@ -73,6 +74,8 @@ func (t *scandiTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant)
 			return scandiPressed
 		case theme.ColorNameSeparator:
 			return scandiSeparator
+		case theme.ColorNameSelection:
+			return scandiSelected
 		case theme.ColorNameScrollBar:
 			return scandiScrollBar
 		case theme.ColorNameInputBackground:

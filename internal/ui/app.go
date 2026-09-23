@@ -12,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -41,7 +42,7 @@ type App struct {
 	playBtn       *PillButton
 	prevBtn       *PillButton
 	nextBtn       *PillButton
-	wpmSlider     *widget.Slider
+	wpmSlider     *SlimSlider
 	wpmEntry      *widget.Entry
 	progress      *SlimProgress
 	progressLabel *widget.Label
@@ -59,7 +60,6 @@ type App struct {
 	detector      *activityDetector
 	hideTimer     *time.Timer
 	chromeHidden  bool
-	syncingWPM    bool
 
 	readerFont  fyne.Resource
 	fontMu      sync.RWMutex
@@ -147,15 +147,13 @@ func (a *App) buildWidgets() {
 		a.poke()
 	}
 
-	a.wpmSlider = widget.NewSlider(reader.MinWPM, reader.MaxWPM)
-	a.wpmSlider.Step = reader.StepWPM
+	a.wpmSlider = NewSlimSlider(reader.MinWPM, reader.MaxWPM, reader.StepWPM)
 	a.wpmSlider.OnChanged = func(v float64) {
-		if a.syncingWPM {
-			return
-		}
 		a.setWPM(reader.SnapWPM(int(v + 0.5)))
-		a.saveProgress("")
 		a.poke()
+	}
+	a.wpmSlider.OnChangeEnded = func(float64) {
+		a.saveProgress("")
 	}
 	a.wpmSlider.SetValue(float64(reader.SnapWPM(a.prefWPM())))
 
@@ -213,9 +211,11 @@ func (a *App) bottomBar() *fyne.Container {
 	transport := container.NewHBox(a.prevBtn, pillGap(), a.playBtn, pillGap(), a.nextBtn)
 	speedBox := container.NewHBox(widget.NewLabel("Speed"),
 		container.NewGridWrap(fyne.NewSize(76, a.wpmEntry.MinSize().Height), a.wpmEntry))
-	deck := container.NewBorder(nil, nil, transport, speedBox)
+	deck := container.NewBorder(nil, nil,
+		container.NewHBox(transport, pillGap(), pillGap(), speedBox),
+		nil, a.wpmSlider)
 	return container.NewVBox(widget.NewSeparator(), a.sectionLabel, deck,
-		a.wpmSlider, a.progress, a.progressLabel, a.statusLabel)
+		a.progress, a.progressLabel, a.statusLabel)
 }
 
 // buildReaderScreen assembles the reader view and remembers the chrome
@@ -712,9 +712,7 @@ func (a *App) setWPM(wpm int) {
 	if a.player != nil {
 		a.player.SetWPM(wpm)
 	}
-	a.syncingWPM = true
 	a.wpmSlider.SetValue(float64(wpm))
-	a.syncingWPM = false
 	a.wpmEntry.SetText(fmt.Sprintf("%d", wpm))
 	a.prefs().SetInt("wpm", wpm)
 	a.refreshProgress()
@@ -802,9 +800,8 @@ const fontDefaultLabel = "System default"
 func (a *App) showSettings() {
 	highlight := widget.NewCheck("Highlight recognition letter", func(bool) {})
 	highlight.SetChecked(a.orp.Highlight)
-	fontSlider := widget.NewSlider(28, 120)
-	fontSlider.Step = 4
-	fontSlider.SetValue(float64(a.orp.FontSize))
+	fontSizeSlider := NewSlimSlider(28, 120, 4)
+	fontSizeSlider.SetValue(float64(a.orp.FontSize))
 	themeSel := widget.NewSelect([]string{"Dark", "Light"}, func(string) {})
 	if a.prefs().StringWithFallback("theme", "dark") == "light" {
 		themeSel.SetSelected("Light")
@@ -828,20 +825,24 @@ func (a *App) showSettings() {
 	default:
 		fontSel.Disable() // scan still running; picker shows current only
 	}
-	items := []*widget.FormItem{
+	form := widget.NewForm(
 		widget.NewFormItem("Highlight", highlight),
-		widget.NewFormItem("Font size", fontSlider),
+		widget.NewFormItem("Font size", fontSizeSlider),
 		widget.NewFormItem("Reader font", fontSel),
 		widget.NewFormItem("Theme", themeSel),
-	}
-	dialog.NewForm("Settings", "Apply", "Cancel", items, func(ok bool) {
-		if !ok {
-			return
-		}
+	)
+	cancelBtn := NewPillButton("Cancel", nil)
+	applyBtn := NewPillButton("Apply", nil)
+	applyBtn.Bold = true
+	buttons := container.NewHBox(layout.NewSpacer(), cancelBtn, pillGap(), applyBtn)
+	d := dialog.NewCustomWithoutButtons("Settings",
+		container.NewVBox(form, buttons), a.win)
+	cancelBtn.OnTapped = d.Hide
+	applyBtn.OnTapped = func() {
 		a.orp.Highlight = highlight.Checked
 		a.prefs().SetBool("highlight", highlight.Checked)
-		a.orp.FontSize = float32(fontSlider.Value)
-		a.prefs().SetFloat("fontSize", fontSlider.Value)
+		a.orp.FontSize = float32(fontSizeSlider.Value)
+		a.prefs().SetFloat("fontSize", fontSizeSlider.Value)
 		a.applyReaderFont(fontSel.Selected, fontPaths)
 		if themeSel.Selected == "Light" {
 			a.prefs().SetString("theme", "light")
@@ -850,7 +851,9 @@ func (a *App) showSettings() {
 		}
 		a.applyThemePref()
 		a.orp.Refresh()
-	}, a.win).Show()
+		d.Hide()
+	}
+	d.Show()
 }
 
 // applyReaderFont loads the selected family (or restores the default),
