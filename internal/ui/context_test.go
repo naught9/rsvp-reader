@@ -216,13 +216,36 @@ func TestContextUsesReaderFontSlot(t *testing.T) {
 	// slot (shared with the ORP display); measuring must use the same
 	// style or the wrap drifts from what's drawn.
 	for name, st := range map[string]fyne.TextStyle{
-		"plain": contextPlain.TextStyle, "dim": contextDim.TextStyle, "active": contextActive.TextStyle,
+		"body": contextBodyStyle().TextStyle, "active": contextActive.TextStyle,
 	} {
 		if !st.Monospace {
 			t.Fatalf("%s style left the reader font slot", name)
 		}
 	}
+	// Dark keeps the quiet dimmed body; light takes full ink, where the
+	// dimmed rung is illegible.
+	if got := contextBodyStyle().ColorName; got != theme.ColorNameDisabled {
+		t.Fatalf("dark body = %q, want the quiet rung", got)
+	}
 	if !ctxMeasureStyle.Monospace {
 		t.Fatalf("layout measures outside the reader font slot")
+	}
+}
+
+func TestRenderLinesEllipses(t *testing.T) {
+	words := []string{"a", "b", "c", "d", "e"}
+	lines := []ctxLine{{words: []int{1, 2, 3}}}
+	segs, _, _ := renderLines(words, lines, 0, 0, 2)
+	first := segs[0].(*widget.TextSegment)
+	last := segs[len(segs)-1].(*widget.TextSegment)
+	if first.Text != "… " || last.Text != " …" {
+		t.Fatalf("truncated ends = %q / %q", first.Text, last.Text)
+	}
+	full := []ctxLine{{words: []int{0, 1}}, {words: []int{2, 3, 4}}}
+	segs, _, _ = renderLines(words, full, 0, 1, 2)
+	for _, s := range segs {
+		if ts, ok := s.(*widget.TextSegment); ok && (ts.Text == "… " || ts.Text == " …") {
+			t.Fatalf("untruncated window shows ellipsis")
+		}
 	}
 }

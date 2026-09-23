@@ -82,13 +82,24 @@ func anchorLayout(words []string, starts map[int]bool, pos, nwords int, width, t
 // measures with the same font it renders, or the wrap drifts.
 var ctxMeasureStyle = fyne.TextStyle{Monospace: true}
 
+// Quiet body copy; the active word alone carries color. Monospace
+// renders the reader typeface: the theme carries the user's font in
+// that slot (shared with the ORP display).
+var contextBreak = widget.RichTextStyle{Inline: false}
+
+// contextBodyStyle is the quiet body ink, resolved per variant at render
+// time: dimmed white on the near-black canvas, full ink on light surfaces
+// where the dimmed rung falls below legibility.
+func contextBodyStyle() widget.RichTextStyle {
+	name := theme.ColorNameDisabled
+	if fyne.CurrentApp() != nil &&
+		fyne.CurrentApp().Settings().ThemeVariant() == theme.VariantLight {
+		name = theme.ColorNameForeground
+	}
+	return widget.RichTextStyle{Inline: true, ColorName: name, TextStyle: ctxMeasureStyle}
+}
+
 var (
-	// Quiet body copy; the active word alone carries color. Monospace
-	// renders the reader typeface: the theme carries the user's font in
-	// that slot (shared with the ORP display).
-	contextPlain = widget.RichTextStyle{Inline: true, ColorName: theme.ColorNameDisabled, TextStyle: ctxMeasureStyle}
-	contextBreak = widget.RichTextStyle{Inline: false}
-	contextDim   = widget.RichTextStyle{Inline: true, ColorName: theme.ColorNameDisabled, TextStyle: ctxMeasureStyle}
 	// Active word: theme red only, echoing the ORP focal letter. No bold:
 	// weight changes advance width and the line shivers as it moves.
 	contextActive = widget.RichTextStyle{
@@ -156,6 +167,9 @@ func activeLine(lines []ctxLine, pos int) int {
 func renderLines(words []string, lines []ctxLine, lo, hi, pos int) ([]widget.RichTextSegment, int, int) {
 	var segs []widget.RichTextSegment
 	activeRow, rows := -1, 0
+	if first := lines[lo].words; len(first) > 0 && first[0] > 0 {
+		segs = append(segs, &widget.TextSegment{Style: contextBodyStyle(), Text: "… "})
+	}
 	for li := lo; li <= hi; li++ {
 		if li > lo {
 			segs = append(segs, &widget.TextSegment{Style: contextBreak, Text: ""})
@@ -166,17 +180,20 @@ func renderLines(words []string, lines []ctxLine, lo, hi, pos int) ([]widget.Ric
 			rows++
 		}
 		for vi, wi := range lines[li].words {
-			st := contextPlain
+			st := contextBodyStyle()
 			if wi == pos {
 				st = contextActive
 				activeRow = rows
 			}
 			segs = append(segs, &widget.TextSegment{Style: st, Text: words[wi]})
 			if vi < len(lines[li].words)-1 {
-				segs = append(segs, &widget.TextSegment{Style: contextPlain, Text: " "})
+				segs = append(segs, &widget.TextSegment{Style: contextBodyStyle(), Text: " "})
 			}
 		}
 		rows++
+	}
+	if last := lines[hi].words; len(last) > 0 && last[len(last)-1] < len(words)-1 {
+		segs = append(segs, &widget.TextSegment{Style: contextBodyStyle(), Text: " …"})
 	}
 	return segs, activeRow, rows
 }
