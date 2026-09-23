@@ -67,32 +67,54 @@ func (r *detectorRenderer) Destroy() {}
 var _ desktop.Hoverable = (*activityDetector)(nil)
 var _ fyne.Tappable = (*activityDetector)(nil)
 
-// poke records user activity: the chrome appears, and while playing it
-// re-arms the idle timer that melts it away again.
+// mirrorSpacer reserves exactly the space its target occupies, so the
+// chrome can overlay reserved gutters: hiding chrome never moves content.
+type mirrorSpacer struct {
+	widget.BaseWidget
+	target fyne.CanvasObject
+}
+
+func newMirrorSpacer(target fyne.CanvasObject) *mirrorSpacer {
+	m := &mirrorSpacer{target: target}
+	m.ExtendBaseWidget(m)
+	return m
+}
+
+func (m *mirrorSpacer) CreateRenderer() fyne.WidgetRenderer {
+	return &mirrorSpacerRenderer{m: m}
+}
+
+type mirrorSpacerRenderer struct {
+	m *mirrorSpacer
+}
+
+func (r *mirrorSpacerRenderer) MinSize() fyne.Size {
+	// Height follows the chrome; width is irrelevant (border stretches it).
+	// Visibility does not affect MinSize, so hide/show cycles are stable.
+	return fyne.NewSize(1, r.m.target.MinSize().Height)
+}
+func (r *mirrorSpacerRenderer) Layout(fyne.Size) {}
+func (r *mirrorSpacerRenderer) Refresh()         {}
+func (r *mirrorSpacerRenderer) Objects() []fyne.CanvasObject {
+	return nil
+}
+func (r *mirrorSpacerRenderer) Destroy() {}
+
+// poke records mouse activity: the chrome appears, and the idle timer
+// that melts it away is re-armed. Chrome follows the mouse only; pausing,
+// stepping, or seeking never summons it.
 func (a *App) poke() {
 	if a.book == nil {
 		return
 	}
 	a.showChrome()
 	a.cancelHideTimer()
-	if a.player != nil && a.player.Playing() {
-		a.hideTimer = time.AfterFunc(chromeIdleHide, func() {
-			fyne.Do(a.hideChrome)
-		})
-	}
+	a.hideTimer = time.AfterFunc(chromeIdleHide, func() {
+		fyne.Do(a.hideChrome)
+	})
 }
 
-// syncChrome settles chrome state after a state change: visible whenever
-// paused, auto-hiding while playing.
-func (a *App) syncChrome() {
-	a.showChrome()
-	a.cancelHideTimer()
-	if a.player != nil && a.player.Playing() {
-		a.hideTimer = time.AfterFunc(chromeIdleHide, func() {
-			fyne.Do(a.hideChrome)
-		})
-	}
-}
+// hideNow melts the chrome immediately, whatever the state.
 
 func (a *App) showChrome() {
 	if !a.chromeHidden {
@@ -111,9 +133,6 @@ func (a *App) hideChrome() {
 	if a.chromeHidden || a.book == nil {
 		return
 	}
-	if a.player != nil && !a.player.Playing() {
-		return // never hide while paused; pause reveals
-	}
 	a.chromeHidden = true
 	if a.topWrap != nil {
 		a.topWrap.Hide()
@@ -128,4 +147,10 @@ func (a *App) cancelHideTimer() {
 		a.hideTimer.Stop()
 		a.hideTimer = nil
 	}
+}
+
+// hideNow melts the chrome immediately, whatever the state.
+func (a *App) hideNow() {
+	a.cancelHideTimer()
+	a.hideChrome()
 }

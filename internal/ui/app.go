@@ -232,8 +232,14 @@ func (a *App) readerCenter() fyne.CanvasObject {
 func (a *App) buildReaderScreen() {
 	a.topWrap = a.topBar()
 	a.bottomWrap = a.bottomBar()
-	center := container.NewStack(a.detector, a.readerCenter())
-	a.readerScreen = container.NewBorder(a.topWrap, a.bottomWrap, nil, nil, center)
+	// Content keeps permanent gutters mirroring the chrome, so the word
+	// never moves when chrome hides. The chrome overlays its gutters;
+	// the detector sits beneath everything.
+	content := container.NewBorder(
+		newMirrorSpacer(a.topWrap), newMirrorSpacer(a.bottomWrap),
+		nil, nil, a.readerCenter())
+	chrome := container.NewBorder(a.topWrap, a.bottomWrap, nil, nil)
+	a.readerScreen = container.NewStack(a.detector, content, chrome)
 	if a.chromeHidden && a.book != nil {
 		a.topWrap.Hide()
 		a.bottomWrap.Hide()
@@ -434,8 +440,8 @@ func (a *App) setBook(book *epub.Book, path string) {
 	a.nextBtn.Enable()
 	a.playBtn.SetText("Play")
 	a.chromeHidden = false
-	a.cancelHideTimer()
 	a.refreshAll()
+	a.poke() // chrome visible, melts after idle
 }
 
 func bookTitle(b *epub.Book) string {
@@ -525,7 +531,6 @@ func (a *App) onTOCSelected(uid string) {
 	a.setStatus(fmt.Sprintf("Section: %s", it.Label))
 	a.refreshAll()
 	a.saveProgress(it.TargetHref)
-	a.syncChrome()
 }
 
 func (a *App) toggleContents() {
@@ -552,7 +557,11 @@ func (a *App) togglePlay() {
 		a.player.Pause()
 		a.playBtn.SetText("Resume")
 		a.saveProgress("")
-	} else if a.player.Ended() {
+		a.refreshAll()
+		a.hideNow()
+		return
+	}
+	if a.player.Ended() {
 		a.player.Restart()
 		a.player.Play(now)
 		a.playBtn.SetText("Pause")
@@ -567,7 +576,7 @@ func (a *App) togglePlay() {
 		a.scheduleTick()
 	}
 	a.refreshAll()
-	a.syncChrome()
+	a.poke()
 }
 
 func (a *App) wasResumed() bool { return a.lastSave.IsZero() == false || a.player.Pos() != 0 }
@@ -592,7 +601,6 @@ func (a *App) step(dir int) {
 	if moved {
 		a.saveProgress("")
 	}
-	a.syncChrome()
 }
 
 func (a *App) bumpWPM(delta int) {
@@ -649,7 +657,7 @@ func (a *App) onEnded() {
 	a.playBtn.SetText("Restart")
 	a.setStatus("End of book — Restart or choose another section.")
 	a.saveProgress("")
-	a.syncChrome()
+	a.hideNow()
 }
 
 // ---------- refresh ----------
