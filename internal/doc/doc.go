@@ -3,7 +3,8 @@ package doc
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"strings"
+
+	"rsvp-reader/internal/tokens"
 )
 
 // Kinds of readable sources.
@@ -84,7 +85,7 @@ func (d *Document) SectionLabel(wordIdx int) string {
 // FromText builds a document from pasted or loaded plain text: one
 // section spanning the whole stream.
 func FromText(title, text string) *Document {
-	words := strings.Fields(text)
+	words := tokens.SplitWords(text)
 	fp := sha256.Sum256([]byte(text))
 	d := &Document{
 		Fingerprint: hex.EncodeToString(fp[:]),

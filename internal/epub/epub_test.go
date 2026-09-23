@@ -267,7 +267,7 @@ func TestLineNumberPruning(t *testing.T) {
 		"fighting", "to", "save", "his", "life",
 		"In", "1945", "the", "fleet", "returned",
 		"Chapter", "1",
-		"the", "wine-dark", "sea", "and", "back", "again",
+		"the", "wine-", "dark", "sea", "and", "back", "again",
 		"Preheat", "the", "oven", "Mix", "the", "flour"}
 	if len(texts) != len(want) {
 		t.Fatalf("words = %q, want %q", texts, want)

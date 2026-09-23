@@ -5,6 +5,8 @@ import (
 	"unicode"
 
 	"golang.org/x/net/html"
+
+	"rsvp-reader/internal/tokens"
 )
 
 // Marginalia pruning.
@@ -196,7 +198,7 @@ func (sp *digitAnchorSpan) observe(text string) {
 }
 
 func (e *extractor) emitText(s, elem string) {
-	fields := strings.Fields(s)
+	fields := tokens.SplitWords(s)
 	blockOpen := e.blockStart
 	for _, tok := range fields {
 		atBoundary := blockOpen || len(e.raw) == 0

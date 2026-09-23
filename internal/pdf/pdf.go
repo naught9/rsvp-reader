@@ -14,6 +14,7 @@ import (
 	pdf "github.com/dslipak/pdf"
 
 	"rsvp-reader/internal/doc"
+	"rsvp-reader/internal/tokens"
 )
 
 // Safety limits so a malformed file cannot exhaust memory.
@@ -123,7 +124,7 @@ func extractPage(r *pdf.Reader, page int) (words []string, stuck bool, err error
 			}
 			sb.WriteByte('\n')
 		}
-		ch <- pageResult{words: strings.Fields(sb.String())}
+		ch <- pageResult{words: tokens.SplitWords(sb.String())}
 	}()
 	select {
 	case res := <-ch:
