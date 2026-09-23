@@ -295,6 +295,24 @@ func (a *App) buildShortcuts() {
 	c := a.win.Canvas()
 	c.AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyO, Modifier: fyne.KeyModifierSuper},
 		func(fyne.Shortcut) { a.showOpenDialog() })
+	// Shift+arrows jump a chunk; plain arrows step a word (see OnTypedKey).
+	// Skipped when typing: Shift+Left/Right is text selection there.
+	jumpGuard := func() bool {
+		_, ok := a.win.Canvas().Focused().(*widget.Entry)
+		return ok
+	}
+	c.AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyLeft, Modifier: fyne.KeyModifierShift},
+		func(fyne.Shortcut) {
+			if !jumpGuard() {
+				a.jumpWords(-jumpChunk)
+			}
+		})
+	c.AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyRight, Modifier: fyne.KeyModifierShift},
+		func(fyne.Shortcut) {
+			if !jumpGuard() {
+				a.jumpWords(jumpChunk)
+			}
+		})
 	c.SetOnTypedKey(func(e *fyne.KeyEvent) {
 		switch e.Name {
 		case fyne.KeySpace:
@@ -668,6 +686,37 @@ func (a *App) togglePlay() {
 }
 
 func (a *App) wasResumed() bool { return a.lastSave.IsZero() == false || a.player.Pos() != 0 }
+
+// jumpChunk is the Shift+arrow jump distance in words.
+const jumpChunk = 25
+
+// jumpWords moves by a chunk, clamping at the ends. Like stepping, it
+// pauses and reveals the chrome.
+func (a *App) jumpWords(delta int) {
+	if a.player == nil {
+		return
+	}
+	a.cancelTick()
+	a.player.Pause()
+	target := a.player.Pos() + delta
+	if target < 0 {
+		target = 0
+	}
+	if target >= a.player.Len() {
+		target = a.player.Len() - 1
+	}
+	a.player.Seek(target)
+	if a.player.Ended() {
+		a.playBtn.SetText("Restart")
+		a.setStatus("End of book — Restart or choose another section.")
+	} else {
+		a.playBtn.SetText("Resume")
+	}
+	a.refreshAll()
+	a.saveProgress("")
+	a.revealChrome()
+	a.syncWakeLock()
+}
 
 func (a *App) step(dir int) {
 	if a.player == nil {

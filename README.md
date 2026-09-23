@@ -53,6 +53,7 @@ First launch needs a right-click → Open, since the bundle is unsigned.
 | --- | ------ |
 | Space | Play / pause |
 | Left / Right | Previous / next word (while paused) |
+| Shift+Left / Shift+Right | Back / forward 25 words |
 | Up / Down | Faster / slower in 25-WPM steps |
 | ⌘O | Open EPUB |
 | Esc | Unfocus / close dialog |

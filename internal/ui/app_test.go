@@ -235,3 +235,26 @@ func TestShowOpenDialogDoesNotCrash(t *testing.T) {
 	a, _ := newTestApp(t)
 	a.showOpenDialog()
 }
+
+func TestJumpWordsChunk(t *testing.T) {
+	a, _ := newTestApp(t) // 11 words
+	a.togglePlay()
+	a.jumpWords(25) // overshoots: clamps to the end
+	if a.player.Current() != "nine" {
+		t.Fatalf("jump forward = %q, want last word", a.player.Current())
+	}
+	if a.player.Playing() {
+		t.Fatalf("jump must pause")
+	}
+	if a.playBtn.Text != "Restart" {
+		t.Fatalf("jump to end button = %q, want Restart", a.playBtn.Text)
+	}
+	a.jumpWords(-25) // undershoots: clamps to the start
+	if a.player.Current() != "one" {
+		t.Fatalf("jump back = %q, want first word", a.player.Current())
+	}
+	if a.playBtn.Text != "Resume" {
+		t.Fatalf("jump mid-book button = %q, want Resume", a.playBtn.Text)
+	}
+	a.cancelTick()
+}
