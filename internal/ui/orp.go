@@ -57,8 +57,8 @@ func (w *ORPWidget) CreateRenderer() fyne.WidgetRenderer {
 	r.focal = canvas.NewText("", focalRed)
 	r.after = canvas.NewText("", theme.ForegroundColor())
 	r.placeholder = canvas.NewText(w.Placeholder, theme.DisabledColor())
-	r.guideTop = canvas.NewRectangle(theme.PrimaryColor())
-	r.guideBottom = canvas.NewRectangle(theme.PrimaryColor())
+	r.guideTop = canvas.NewRectangle(theme.SeparatorColor())
+	r.guideBottom = canvas.NewRectangle(theme.SeparatorColor())
 	for _, t := range []*canvas.Text{r.before, r.focal, r.after, r.placeholder} {
 		t.TextStyle = fyne.TextStyle{Monospace: true}
 	}

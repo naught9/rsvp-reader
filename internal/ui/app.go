@@ -108,10 +108,11 @@ func (a *App) buildWidgets() {
 	a.orp.FontSize = float32(a.prefFontSize())
 
 	a.playBtn = widget.NewButton("Play", a.togglePlay)
+	a.playBtn.Importance = widget.HighImportance
 	a.playBtn.Disable()
 
-	prevBtn := widget.NewButton("‹", func() { a.step(-1) })
-	nextBtn := widget.NewButton("›", func() { a.step(1) })
+	prevBtn := widget.NewButton("Previous", func() { a.step(-1) })
+	nextBtn := widget.NewButton("Next", func() { a.step(1) })
 	prevBtn.Disable()
 	nextBtn.Disable()
 	a.prevBtn, a.nextBtn = prevBtn, nextBtn
@@ -172,14 +173,15 @@ func (a *App) topBar() *fyne.Container {
 	openBtn := widget.NewButton("Open EPUB", a.showOpenDialog)
 	toggleBtn := widget.NewButton("Contents", a.toggleContents)
 	settingsBtn := widget.NewButton("Settings", a.showSettings)
-	return container.NewBorder(nil, nil, nil,
+	bar := container.NewBorder(nil, nil, nil,
 		container.NewHBox(toggleBtn, settingsBtn, openBtn), a.titleLabel)
+	return container.NewVBox(bar, widget.NewSeparator())
 }
 
 func (a *App) bottomBar() *fyne.Container {
 	controls := container.NewHBox(a.prevBtn, a.playBtn, a.nextBtn,
 		widget.NewLabel("Speed"), a.wpmSlider, a.wpmLabel)
-	return container.NewVBox(a.sectionLabel, controls, a.progress, a.progressLabel, a.statusLabel)
+	return container.NewVBox(widget.NewSeparator(), a.sectionLabel, controls, a.progress, a.progressLabel, a.statusLabel)
 }
 
 func (a *App) readerCenter() fyne.CanvasObject {
@@ -196,6 +198,7 @@ func (a *App) buildLayout() {
 	emptyTitle := widget.NewLabel("RSVP Reader")
 	emptyTitle.TextStyle = fyne.TextStyle{Bold: true}
 	emptyOpen := widget.NewButton("Open EPUB", a.showOpenDialog)
+	emptyOpen.Importance = widget.HighImportance
 	a.emptyScreen = container.NewCenter(container.NewVBox(
 		emptyTitle, widget.NewLabel("One word at a time, at a fixed focal point."),
 		emptyOpen, widget.NewLabel("Recent books:"), a.recentBox,
@@ -760,6 +763,6 @@ func (a *App) applyThemePref() {
 	if a.prefs().StringWithFallback("theme", "dark") == "light" {
 		a.fyneApp.Settings().SetTheme(theme.LightTheme())
 	} else {
-		a.fyneApp.Settings().SetTheme(theme.DarkTheme())
+		a.fyneApp.Settings().SetTheme(newScandiTheme())
 	}
 }
