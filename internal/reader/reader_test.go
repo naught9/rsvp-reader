@@ -180,18 +180,27 @@ func TestTimeRemaining(t *testing.T) {
 	}
 }
 
-func TestEndsSentence(t *testing.T) {
-	yes := []string{"word.", "Really?", "Stop!", "so…", "wait...", "end.”", "go.')", "."}
-	no := []string{"word", "don't", "3.14", "v2.0", "e.g.", "U.S.", "J.", "12,109", "well-known", "dogs'", "—", ""}
-	for _, w := range yes {
-		if !EndsSentence(w) {
-			t.Errorf("EndsSentence(%q) = false, want true", w)
+func TestTrailingPause(t *testing.T) {
+	major := []string{"word.", "Really?", "Stop!", "so\u2026", "wait...", "end.\u201d", "go.')", "."}
+	for _, w := range major {
+		if got := TrailingPause(w); got != 2 {
+			t.Errorf("TrailingPause(%q) = %d, want 2", w, got)
 		}
 	}
-	for _, w := range no {
-		if EndsSentence(w) {
-			t.Errorf("EndsSentence(%q) = true, want false", w)
+	minor := []string{"word,", "say:", "pause;", "yes,\u201d"}
+	for _, w := range minor {
+		if got := TrailingPause(w); got != 1 {
+			t.Errorf("TrailingPause(%q) = %d, want 1", w, got)
 		}
+	}
+	none := []string{"word", "don't", "3.14", "v2.0", "e.g.", "U.S.", "J.", "12,109", "well-known", "dogs'", "\u2014", "this-", ""}
+	for _, w := range none {
+		if got := TrailingPause(w); got != 0 {
+			t.Errorf("TrailingPause(%q) = %d, want 0", w, got)
+		}
+	}
+	if !EndsSentence("word.") || EndsSentence("word,") {
+		t.Errorf("EndsSentence compatibility")
 	}
 }
 
@@ -203,12 +212,20 @@ func TestTickSentenceBeat(t *testing.T) {
 	if !p.Tick(now.Add(100*time.Millisecond)) || p.Current() != "two." {
 		t.Fatalf("advance to %q", p.Current())
 	}
-	// "two." lingers: deadline two beats out, not one.
-	if d := p.Deadline().Sub(now); d != 300*time.Millisecond {
-		t.Fatalf("deadline = %v, want 300ms", d)
+	// "two." lingers two extra beats: deadline three intervals out.
+	if d := p.Deadline().Sub(now); d != 400*time.Millisecond {
+		t.Fatalf("deadline = %v, want 400ms", d)
 	}
-	if p.Tick(now.Add(250 * time.Millisecond)) {
+	if p.Tick(now.Add(350 * time.Millisecond)) {
 		t.Fatalf("advanced mid-beat")
+	}
+	r := NewPlayer([]string{"one", "two,", "three"}, 600)
+	r.SentencePause = true
+	r.Play(now)
+	r.Tick(now.Add(100 * time.Millisecond))
+	// Clause mark: one extra beat, two intervals out.
+	if d := r.Deadline().Sub(now); d != 300*time.Millisecond {
+		t.Fatalf("clause deadline = %v, want 300ms", d)
 	}
 	p.SentencePause = false
 	q := NewPlayer([]string{"one", "two.", "three"}, 600)

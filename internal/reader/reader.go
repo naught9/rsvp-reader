@@ -190,45 +190,54 @@ func (p *Player) Tick(now time.Time) (advanced bool) {
 	}
 	p.pos++
 	p.deadline = now.Add(Interval(p.wpm))
-	if p.SentencePause && EndsSentence(p.words[p.pos]) {
-		p.deadline = p.deadline.Add(Interval(p.wpm))
+	if p.SentencePause {
+		// Clause marks breathe one beat, sentence marks two.
+		p.deadline = p.deadline.Add(time.Duration(TrailingPause(p.words[p.pos])) * Interval(p.wpm))
 	}
 	return true
 }
 
-// EndsSentence reports whether a word closes a sentence: trailing . ! ?
-// or ellipsis, ignoring closing quotes and brackets. Abbreviations are
+// TrailingPause is the extra beats a word earns from its final mark: 2
+// for sentence ends (. ! ? ellipsis), 1 for clause marks (, : ;), 0
+// otherwise. Closing quotes and brackets are ignored. Abbreviations are
 // left alone as best-effort: words with interior periods (e.g., U.S.),
-// digits (3.14), or a lone initial (J.) don't pause. "Mr." still pauses;
-// the alternative is a dictionary, deliberately out of scope.
-func EndsSentence(word string) bool {
+// digits (3.14), or a lone initial (J.) earn no sentence beat. "Mr."
+// still breathes; the alternative is a dictionary, deliberately out of
+// scope.
+func TrailingPause(word string) int {
 	w := strings.TrimRight(word, "\"'\u2019\u201d)]}")
 	if w == "" {
-		return false
+		return 0
 	}
 	last := w[len(w)-1]
+	if last == ',' || last == ':' || last == ';' {
+		return 1
+	}
 	if last != '.' && last != '!' && last != '?' && !strings.HasSuffix(w, "\u2026") {
-		return false
+		return 0
 	}
 	if strings.HasSuffix(w, "..") {
-		return true // ellipsis ("...") always breathes
+		return 2 // ellipsis ("...") always breathes deep
 	}
 	body := strings.TrimSuffix(w, "\u2026")
 	if body == "" {
-		return true // a bare mark still breathes
+		return 2 // a bare mark still breathes
 	}
 	body = body[:len(body)-1]
 	if strings.ContainsAny(body, "0123456789") {
-		return false
+		return 0
 	}
 	if strings.Contains(body, ".") {
-		return false
+		return 0
 	}
 	if len([]rune(body)) == 1 && last == '.' {
-		return false
+		return 0
 	}
-	return true
+	return 2
 }
+
+// EndsSentence reports whether a word closes a sentence.
+func EndsSentence(word string) bool { return TrailingPause(word) == 2 }
 
 // StepNext moves one word forward while paused. Returns false at the end.
 func (p *Player) StepNext() bool {
