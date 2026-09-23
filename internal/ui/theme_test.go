@@ -6,6 +6,8 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
+
+	"rsvp-reader/internal/store"
 )
 
 func nrgba(c color.Color) color.NRGBA {
@@ -43,12 +45,65 @@ func TestScandiDarkTokens(t *testing.T) {
 			t.Fatalf("semantic token %q was altered", name)
 		}
 	}
-	// Light variant delegates entirely.
+	// Light variant carries the paper/ink mirror (see
+	// TestScandiCoherentBothVariants); only semantics delegate.
+	lightBase := theme.LightTheme()
 	for _, name := range []fyne.ThemeColorName{
-		theme.ColorNameBackground, theme.ColorNamePrimary, theme.ColorNameSeparator,
+		theme.ColorNameError, theme.ColorNameWarning, theme.ColorNameSuccess, theme.ColorNameFocus,
 	} {
-		if nrgba(th.Color(name, theme.VariantLight)) != nrgba(base.Color(name, theme.VariantLight)) {
-			t.Fatalf("light variant token %q was altered", name)
+		if nrgba(th.Color(name, theme.VariantLight)) != nrgba(lightBase.Color(name, theme.VariantLight)) {
+			t.Fatalf("light semantic token %q was altered", name)
 		}
+	}
+}
+
+func TestScandiCoherentBothVariants(t *testing.T) {
+	th := newScandiTheme()
+	bgD := th.Color(theme.ColorNameBackground, theme.VariantDark)
+	bgL := th.Color(theme.ColorNameBackground, theme.VariantLight)
+	if bgD == bgL {
+		t.Fatalf("background identical across variants")
+	}
+	fgD := th.Color(theme.ColorNameForeground, theme.VariantDark)
+	fgL := th.Color(theme.ColorNameForeground, theme.VariantLight)
+	if fgD == fgL {
+		t.Fatalf("foreground identical across variants")
+	}
+	// Light rows are light: paper background, dark ink.
+	lr, lg, lb, _ := bgL.RGBA()
+	fr, _, _, _ := fgL.RGBA()
+	if lr < 0xf000 || lg < 0xf000 || lb < 0xf000 {
+		t.Fatalf("light background too dark: %v", bgL)
+	}
+	if fr > 0x4000 {
+		t.Fatalf("light foreground too faint: %v", fgL)
+	}
+	// Semantics still delegate per variant.
+	if th.Color(theme.ColorNameError, theme.VariantLight) != theme.LightTheme().Color(theme.ColorNameError, theme.VariantLight) {
+		t.Fatalf("light error diverges from stock")
+	}
+}
+
+func TestThemeChoiceMapping(t *testing.T) {
+	if themeChoiceToStore("Dark") != store.ThemeDark || themeChoiceToStore("Light") != store.ThemeLight {
+		t.Fatalf("choice mapping")
+	}
+	if themeChoiceToStore("Follow System") != store.ThemeSystem || themeChoiceToStore("??") != store.ThemeSystem {
+		t.Fatalf("default mapping")
+	}
+	if themeStoreToLabel(store.ThemeDark) != "Dark" || themeStoreToLabel("") != "Follow System" {
+		t.Fatalf("label mapping")
+	}
+	if env, ok := ThemeEnvOverride(store.ThemeLight); !ok || env != "light" {
+		t.Fatalf("light env")
+	}
+	if env, ok := ThemeEnvOverride(store.ThemeDark); !ok || env != "dark" {
+		t.Fatalf("dark env")
+	}
+	if _, ok := ThemeEnvOverride(store.ThemeSystem); ok {
+		t.Fatalf("system must not force the environment")
+	}
+	if _, ok := ThemeEnvOverride(""); ok {
+		t.Fatalf("unset must not force the environment")
 	}
 }

@@ -31,6 +31,38 @@ type db struct {
 	Version int                 `json:"version"`
 	Books   map[string]Progress `json:"books"`
 	Recent  []string            `json:"recent"`
+	// Theme is the appearance choice: "dark", "light", "system", or ""
+	// (unset, treated as system). Lives here — not in Fyne prefs — so
+	// startup can force the variant before the app exists.
+	Theme string `json:"theme,omitempty"`
+}
+
+// Theme values for db.Theme.
+const (
+	ThemeDark   = "dark"
+	ThemeLight  = "light"
+	ThemeSystem = "system"
+)
+
+// GetThemeOr returns the stored appearance choice, or fallback when the
+// store is unavailable (lets main read the choice before the app exists).
+func GetThemeOr(s *Store, fallback string) string {
+	if s == nil {
+		return fallback
+	}
+	return s.data.Theme
+}
+
+// GetTheme returns the stored appearance choice ("", none stored yet).
+func (s *Store) GetTheme() string { return GetThemeOr(s, "") }
+
+// SetTheme persists the appearance choice.
+func (s *Store) SetTheme(v string) error {
+	if s == nil {
+		return nil
+	}
+	s.data.Theme = v
+	return s.write()
 }
 
 // Store persists per-book progress as versioned JSON with atomic writes.
@@ -76,6 +108,7 @@ func Open(dir string) (*Store, error) {
 		s.data.Books = loaded.Books
 	}
 	s.data.Recent = loaded.Recent
+	s.data.Theme = loaded.Theme
 	return s, nil
 }
 

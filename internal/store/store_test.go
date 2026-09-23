@@ -101,3 +101,34 @@ func TestTextRoundTrip(t *testing.T) {
 		t.Fatalf("oversize text accepted")
 	}
 }
+
+func TestThemeRoundTrip(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetTheme(); got != "" {
+		t.Fatalf("fresh theme = %q", got)
+	}
+	if err := s.SetTheme(ThemeLight); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.GetTheme(); got != ThemeLight {
+		t.Fatalf("theme = %q", got)
+	}
+	// Survives reopen; nil store is safe.
+	s2, err := Open(s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s2.GetTheme(); got != ThemeLight {
+		t.Fatalf("reopened theme = %q", got)
+	}
+	var nilStore *Store
+	if got := nilStore.GetTheme(); got != "" {
+		t.Fatalf("nil theme = %q", got)
+	}
+	if got := GetThemeOr(nil, "x"); got != "x" {
+		t.Fatalf("nil fallback = %q", got)
+	}
+}

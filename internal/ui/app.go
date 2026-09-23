@@ -15,7 +15,6 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"rsvp-reader/internal/doc"
@@ -95,6 +94,7 @@ func New(fyneApp fyne.App, db *store.Store, cliArg string) *App {
 	a.contentsOn = a.prefs().BoolWithFallback("contentsPane", false)
 	a.contextOn = a.prefs().BoolWithFallback("contextPane", false)
 	a.win = fyneApp.NewWindow("RSVP Reader")
+	a.migrateThemePref()
 	a.loadSavedFont()
 	a.applyThemePref()
 	a.buildWidgets()
@@ -1002,12 +1002,9 @@ func (a *App) showSettings() {
 	highlight.SetChecked(a.orp.Highlight)
 	fontSizeSlider := NewSlimSlider(28, 120, 4)
 	fontSizeSlider.SetValue(float64(a.orp.FontSize))
-	themeSel := widget.NewSelect([]string{"Dark", "Light"}, func(string) {})
-	if a.prefs().StringWithFallback("theme", "dark") == "light" {
-		themeSel.SetSelected("Light")
-	} else {
-		themeSel.SetSelected("Dark")
-	}
+	themeSel := widget.NewSelect(themeOptions, func(string) {})
+	themeSel.SetSelected(themeStoreToLabel(a.db.GetTheme()))
+	prevTheme := themeSel.Selected
 	fontOpts, fontPaths := a.fontOptions()
 	families := append([]string(nil), fontOpts[1:]...)
 	pendingFont := ""
@@ -1115,10 +1112,12 @@ func (a *App) showSettings() {
 		a.orp.FontSize = float32(fontSizeSlider.Value)
 		a.prefs().SetFloat("fontSize", fontSizeSlider.Value)
 		a.applyReaderFont(pendingFont, fontPaths)
-		if themeSel.Selected == "Light" {
-			a.prefs().SetString("theme", "light")
-		} else {
-			a.prefs().SetString("theme", "dark")
+		nextTheme := themeChoiceToStore(themeSel.Selected)
+		if a.db != nil && nextTheme != themeChoiceToStore(prevTheme) {
+			_ = a.db.SetTheme(nextTheme)
+			// Variant forcing happens at startup; the object stays
+			// coherent meanwhile, so this session keeps working.
+			a.setStatus("Theme choice saved — restart to fully apply it.")
 		}
 		a.applyThemePref()
 		a.orp.Refresh()
@@ -1155,14 +1154,69 @@ func (a *App) applyReaderFont(selected string, paths map[string]string) {
 	a.prefs().SetString("readerFontFamily", selected)
 }
 
-func (a *App) applyThemePref() {
-	if a.prefs().StringWithFallback("theme", "dark") == "light" {
-		a.fyneApp.Settings().SetTheme(theme.LightTheme())
-	} else {
-		th := newScandiTheme()
-		th.SetReaderFont(a.readerFont)
-		a.fyneApp.Settings().SetTheme(th)
+// Theme choices in the settings dialog and their stored values.
+var themeOptions = []string{"Follow System", "Dark", "Light"}
+
+func themeChoiceToStore(label string) string {
+	switch label {
+	case "Dark":
+		return store.ThemeDark
+	case "Light":
+		return store.ThemeLight
+	default:
+		return store.ThemeSystem
 	}
+}
+
+func themeStoreToLabel(v string) string {
+	switch v {
+	case store.ThemeDark:
+		return "Dark"
+	case store.ThemeLight:
+		return "Light"
+	default:
+		return "Follow System"
+	}
+}
+
+// ThemeEnvOverride maps a stored choice to the FYNE_THEME value forcing
+// the variant at startup. SetTheme preserves the system variant, so
+// without this an explicit Dark/Light choice renders one variant's
+// object with the other's lookups. Follow System leaves the environment
+// (and any external FYNE_THEME) alone.
+func ThemeEnvOverride(choice string) (string, bool) {
+	switch choice {
+	case store.ThemeDark:
+		return "dark", true
+	case store.ThemeLight:
+		return "light", true
+	default:
+		return "", false
+	}
+}
+
+// migrateThemePref moves the legacy Fyne-prefs choice into the store on
+// first run: an explicit Light survives, anything else becomes Follow
+// System (identical on dark systems, coherent light on light ones).
+func (a *App) migrateThemePref() {
+	if a.db == nil || a.db.GetTheme() != "" {
+		return
+	}
+	if a.prefs().StringWithFallback("theme", "dark") == "light" {
+		_ = a.db.SetTheme(store.ThemeLight)
+	} else {
+		_ = a.db.SetTheme(store.ThemeSystem)
+	}
+}
+
+func (a *App) applyThemePref() {
+	// One object under either variant: the scandi tables are coherent
+	// for dark and light lookups alike. The variant itself is forced at
+	// startup from the stored choice (see main); in-session switches
+	// take full effect on restart.
+	th := newScandiTheme()
+	th.SetReaderFont(a.readerFont)
+	a.fyneApp.Settings().SetTheme(th)
 }
 
 // scanFonts inventories system fonts off the UI thread; settings reads
