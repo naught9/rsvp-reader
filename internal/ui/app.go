@@ -221,11 +221,12 @@ func (a *App) buildWidgets() {
 
 func (a *App) topBar() *fyne.Container {
 	openBtn := NewPillButton("Open file", a.showOpenDialog)
+	pasteBtn := NewPillButton("Paste text", a.showPasteDialog)
 	toggleBtn := NewPillButton("Contents", a.toggleContents)
 	contextBtn := NewPillButton("Context", a.toggleContext)
 	settingsBtn := NewPillButton("Settings", a.showSettings)
 	bar := container.NewBorder(nil, nil, nil,
-		container.NewHBox(toggleBtn, pillGap(), contextBtn, pillGap(), settingsBtn, pillGap(), openBtn), a.titleLabel)
+		container.NewHBox(toggleBtn, pillGap(), contextBtn, pillGap(), settingsBtn, pillGap(), pasteBtn, pillGap(), openBtn), a.titleLabel)
 	return container.NewVBox(bar, widget.NewSeparator())
 }
 

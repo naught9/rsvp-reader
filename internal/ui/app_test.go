@@ -304,3 +304,8 @@ func TestPanesRememberedDefaultClosed(t *testing.T) {
 	}
 	a.cancelTick()
 }
+
+func TestShowPasteDialogDoesNotCrash(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.showPasteDialog()
+}
