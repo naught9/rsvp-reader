@@ -809,26 +809,90 @@ func (a *App) showSettings() {
 		themeSel.SetSelected("Dark")
 	}
 	fontOpts, fontPaths := a.fontOptions()
-	fontSel := widget.NewSelect(fontOpts, func(string) {})
-	current := fontDefaultLabel
+	families := append([]string(nil), fontOpts[1:]...)
+	pendingFont := ""
 	if saved := a.prefs().StringWithFallback("readerFontPath", ""); saved != "" {
 		for fam, path := range fontPaths {
 			if path == saved {
-				current = fam
+				pendingFont = fam
 				break
 			}
 		}
 	}
-	fontSel.SetSelected(current)
+	fontName := func(fam string) string {
+		if fam == "" {
+			return fontDefaultLabel
+		}
+		return fam
+	}
+	currentFontLabel := widget.NewLabel("Current: " + fontName(pendingFont))
+	filtered := append([]string(nil), families...)
+	fontSearch := widget.NewEntry()
+	fontSearch.SetPlaceHolder("Search fonts")
+	fontList := widget.NewList(
+		func() int { return len(filtered) + 1 },
+		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func(id widget.ListItemID, o fyne.CanvasObject) {
+			if id == 0 {
+				o.(*widget.Label).SetText(fontDefaultLabel)
+				return
+			}
+			o.(*widget.Label).SetText(filtered[id-1])
+		},
+	)
+	fontList.OnSelected = func(id widget.ListItemID) {
+		if id == 0 {
+			pendingFont = ""
+		} else {
+			pendingFont = filtered[id-1]
+		}
+		currentFontLabel.SetText("Current: " + fontName(pendingFont))
+	}
+	fontSearch.OnChanged = func(s string) {
+		q := strings.ToLower(strings.TrimSpace(s))
+		filtered = filtered[:0]
+		for _, f := range families {
+			if q == "" || strings.Contains(strings.ToLower(f), q) {
+				filtered = append(filtered, f)
+			}
+		}
+		fontList.Refresh()
+		fontList.UnselectAll()
+		for i, f := range filtered {
+			if f == pendingFont {
+				fontList.Select(i + 1)
+				break
+			}
+		}
+		if pendingFont == "" {
+			fontList.Select(0)
+		}
+	}
 	select {
 	case <-a.fontScanned:
 	default:
-		fontSel.Disable() // scan still running; picker shows current only
+		fontSearch.Disable() // scan still running; results land on reopen
+	}
+	fontPicker := container.NewVBox(
+		currentFontLabel,
+		fontSearch,
+		container.NewGridWrap(fyne.NewSize(300, 170), fontList),
+	)
+	// Preselect the active font once rows exist.
+	if pendingFont == "" {
+		fontList.Select(0)
+	} else {
+		for i, f := range filtered {
+			if f == pendingFont {
+				fontList.Select(i + 1)
+				break
+			}
+		}
 	}
 	form := widget.NewForm(
 		widget.NewFormItem("Highlight", highlight),
 		widget.NewFormItem("Font size", fontSizeSlider),
-		widget.NewFormItem("Reader font", fontSel),
+		widget.NewFormItem("Reader font", fontPicker),
 		widget.NewFormItem("Theme", themeSel),
 	)
 	cancelBtn := NewPillButton("Cancel", nil)
@@ -843,7 +907,7 @@ func (a *App) showSettings() {
 		a.prefs().SetBool("highlight", highlight.Checked)
 		a.orp.FontSize = float32(fontSizeSlider.Value)
 		a.prefs().SetFloat("fontSize", fontSizeSlider.Value)
-		a.applyReaderFont(fontSel.Selected, fontPaths)
+		a.applyReaderFont(pendingFont, fontPaths)
 		if themeSel.Selected == "Light" {
 			a.prefs().SetString("theme", "light")
 		} else {
@@ -862,19 +926,21 @@ func (a *App) applyReaderFont(selected string, paths map[string]string) {
 	if selected == "" || selected == fontDefaultLabel {
 		a.readerFont = nil
 		a.prefs().SetString("readerFontPath", "")
+		a.prefs().SetString("readerFontFamily", "")
 		return
 	}
 	path, ok := paths[selected]
 	if !ok {
 		return
 	}
-	data, err := LoadFontResource(path)
+	data, err := LoadFontFace(path, selected)
 	if err != nil {
 		a.setStatus(fmt.Sprintf("Could not load %s; keeping the previous font.", selected))
 		return
 	}
 	a.readerFont = fyne.NewStaticResource(filepath.Base(path), data)
 	a.prefs().SetString("readerFontPath", path)
+	a.prefs().SetString("readerFontFamily", selected)
 }
 
 func (a *App) applyThemePref() {
@@ -898,15 +964,18 @@ func (a *App) scanFonts() {
 }
 
 // loadSavedFont restores the persisted reader typeface, falling back to
-// the bundled font when the file is gone or unloadable.
+// the bundled font when the file is gone or unloadable. Strict validation
+// here is what breaks the crash loop a bad persisted font would cause.
 func (a *App) loadSavedFont() {
 	path := a.prefs().StringWithFallback("readerFontPath", "")
 	if path == "" {
 		return
 	}
-	data, err := LoadFontResource(path)
+	family := a.prefs().StringWithFallback("readerFontFamily", "")
+	data, err := LoadFontFace(path, family)
 	if err != nil {
 		a.prefs().SetString("readerFontPath", "")
+		a.prefs().SetString("readerFontFamily", "")
 		return
 	}
 	a.readerFont = fyne.NewStaticResource(filepath.Base(path), data)

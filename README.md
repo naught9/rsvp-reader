@@ -11,7 +11,7 @@ Built from scratch with [Fyne](https://fyne.io/). Interaction design informed by
 - RSVP playback with Optimal Recognition Point (ORP) focal-letter highlight (toggleable), 50–1000 WPM in 25-WPM steps (default 300)
 - Play/pause, previous/next word, progress (word count, %, time remaining), current-section label
 - Remembers position, speed, and settings per book (keyed by content hash), plus a recent-books list
-- Dark theme by default, light theme available; adjustable reader font size and a system font picker for the reader typeface
+- Dark theme by default, light theme available; adjustable reader font size and a searchable system font picker for the reader typeface (TrueType, OpenType, and collections)
 - Fully offline — no accounts, telemetry, or network requests
 
 ## Requirements
