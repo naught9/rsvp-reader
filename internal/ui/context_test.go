@@ -16,10 +16,37 @@ func activeText(segs []widget.RichTextSegment, active int) string {
 	return ""
 }
 
+func TestContextWindowQuantized(t *testing.T) {
+	// Within one estimated line the bounds hold; crossing a line moves
+	// them, and the active word is always inside.
+	lo1, hi1 := contextWindow(200, 41, 8, 30)
+	lo2, hi2 := contextWindow(200, 47, 8, 30)
+	if lo1 != lo2 || hi1 != hi2 {
+		t.Fatalf("same-line window moved: [%d %d] vs [%d %d]", lo1, hi1, lo2, hi2)
+	}
+	lo3, hi3 := contextWindow(200, 48, 8, 30)
+	if lo3 == lo1 {
+		t.Fatalf("line-crossing window held: [%d %d]", lo3, hi3)
+	}
+	for pos := 0; pos < 200; pos++ {
+		lo, hi := contextWindow(200, pos, 8, 30)
+		if pos < lo || pos > hi {
+			t.Fatalf("pos %d outside [%d %d]", pos, lo, hi)
+		}
+	}
+	// Clamped at the ends.
+	if lo, _ := contextWindow(10, 0, 8, 30); lo != 0 {
+		t.Fatalf("start lo = %d", lo)
+	}
+	if _, hi := contextWindow(10, 9, 8, 30); hi != 9 {
+		t.Fatalf("end hi = %d", hi)
+	}
+}
+
 func TestContextSegments(t *testing.T) {
 	words := []string{"one", "two", "three", "four", "five", "six"}
 	starts := []int{0, 3}
-	segs, active := contextSegments(words, starts, 4, 60)
+	segs, active, _ := contextSegments(words, starts, 0, 5, 4)
 	if got := activeText(segs, active); got != "five" {
 		t.Fatalf("active = %q, want five", got)
 	}
@@ -40,30 +67,24 @@ func TestContextSegments(t *testing.T) {
 	}
 }
 
-func TestContextSegmentsTruncates(t *testing.T) {
+func TestContextSegmentsEllipses(t *testing.T) {
 	words := []string{"a", "b", "c", "d", "e"}
-	segs, active := contextSegments(words, []int{0}, 4, 3)
-	if got := activeText(segs, active); got != "e" {
-		t.Fatalf("active = %q, want e", got)
+	segs, active, frac := contextSegments(words, []int{0}, 1, 3, 2)
+	if got := activeText(segs, active); got != "c" {
+		t.Fatalf("active = %q, want c", got)
 	}
 	first := segs[0].(*widget.TextSegment)
-	if first.Text != "… " {
-		t.Fatalf("window should open with ellipsis, got %q", first.Text)
+	last := segs[len(segs)-1].(*widget.TextSegment)
+	if first.Text != "… " || last.Text != " …" {
+		t.Fatalf("truncated ends = %q / %q", first.Text, last.Text)
 	}
-	// Window holds c d e only.
-	n := 0
-	for _, s := range segs {
-		if ts, ok := s.(*widget.TextSegment); ok && ts.Style.Inline && ts.Text != " " && ts.Text != "… " {
-			n++
-		}
-	}
-	if n != 3 {
-		t.Fatalf("window holds %d words, want 3", n)
+	if frac != 0.5 {
+		t.Fatalf("frac = %v, want 0.5", frac)
 	}
 }
 
 func TestContextSegmentsEmpty(t *testing.T) {
-	if segs, active := contextSegments(nil, nil, 0, 60); segs != nil || active != -1 {
+	if segs, active, _ := contextSegments(nil, nil, 0, -1, 0); segs != nil || active != -1 {
 		t.Fatalf("empty input = %v, %d", segs, active)
 	}
 }

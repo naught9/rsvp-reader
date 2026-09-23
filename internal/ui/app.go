@@ -77,6 +77,7 @@ type App struct {
 	contextRich   *widget.RichText
 	contextScroll *container.Scroll
 	contextPane   fyne.CanvasObject
+	contextLine   int
 	lastSave      time.Time
 }
 
@@ -564,6 +565,7 @@ func (a *App) setDocument(d *doc.Document, sourcePath string) {
 	a.nextBtn.Enable()
 	a.playBtn.SetText("Play")
 	a.chromeHidden = false
+	a.contextLine = -1 // new book re-anchors the glance pane
 	a.refreshAll()
 	a.poke()         // chrome visible, melts after idle
 	a.syncWakeLock() // fresh documents open paused
