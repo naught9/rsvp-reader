@@ -328,6 +328,9 @@ func (a *App) showOpenDialog() {
 		a.openFile(p)
 	}, a.win)
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".epub", ".pdf"}))
+	// Fyne draws its own picker (no native NSOpenPanel integration
+	// exists upstream); give it room to breathe instead.
+	fd.Resize(fyne.NewSize(780, 560))
 	fd.Show()
 }
 
