@@ -172,3 +172,11 @@ func TestToggleContext(t *testing.T) {
 		t.Fatalf("toggle did not disable")
 	}
 }
+
+func TestContextPaneShrinkable(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.toggleContext()
+	if w := a.contextScroll.MinSize().Width; w > contextMinWidth+2*16 {
+		t.Fatalf("pane floor = %vpx, blocks shrinking", w)
+	}
+}

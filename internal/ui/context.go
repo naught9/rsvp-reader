@@ -18,6 +18,10 @@ const (
 	// layout re-anchors, so below-context never drains mid-page.
 	contextLineRadius = 8
 	contextPrefetch   = 4
+	// contextMinWidth floors the pane so the splitter can shrink it well
+	// below the default; lines simply wrap narrower. (A 280px floor is
+	// what used to block shrinking the pane at all.)
+	contextMinWidth = 140
 )
 
 // layoutCovers reports whether the layout holds the active line with a
@@ -178,7 +182,7 @@ func (a *App) buildContextPane() {
 	a.contextHead.TextSize = theme.Size(theme.SizeNameCaptionText)
 	a.contextScroll = container.NewVScroll(
 		container.NewVBox(layout.NewSpacer(), a.contextRich, layout.NewSpacer()))
-	a.contextScroll.SetMinSize(fyne.NewSize(280, 0))
+	a.contextScroll.SetMinSize(fyne.NewSize(contextMinWidth, 0))
 	body := container.NewBorder(
 		container.NewVBox(a.contextHead, widget.NewSeparator()),
 		nil, widget.NewSeparator(), nil,
