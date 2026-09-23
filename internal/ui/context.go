@@ -180,7 +180,13 @@ func (a *App) buildContextPane() {
 	a.contextHead = canvas.NewText("", theme.Color(theme.ColorNameForeground))
 	a.contextHead.Alignment = fyne.TextAlignCenter
 	a.contextHead.TextSize = theme.Size(theme.SizeNameCaptionText)
-	a.contextScroll = container.NewVScroll(
+	// Both scroll directions: a vertical-only scroll floors its width at
+	// the content's MinSize, which with wrapping off is the longest laid
+	// line — the divider could never shrink past the current lines. Both
+	// directions ignore content size, so the SetMinSize floor below holds.
+	// Lines fit the width by construction, so no horizontal bar appears
+	// in steady state.
+	a.contextScroll = container.NewScroll(
 		container.NewVBox(layout.NewSpacer(), a.contextRich, layout.NewSpacer()))
 	a.contextScroll.SetMinSize(fyne.NewSize(contextMinWidth, 0))
 	body := container.NewBorder(

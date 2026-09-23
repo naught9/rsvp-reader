@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"strings"
 
 	"fyne.io/fyne/v2/theme"
@@ -176,6 +177,13 @@ func TestToggleContext(t *testing.T) {
 func TestContextPaneShrinkable(t *testing.T) {
 	a, _ := newTestApp(t)
 	a.toggleContext()
+	// A vertical-only scroll floors its width at the content MinSize,
+	// which with wrapping off is the longest laid line: the divider
+	// could never shrink past the current lines. Both directions ignore
+	// content size, so only the explicit floor below applies.
+	if a.contextScroll.Direction == container.ScrollVerticalOnly {
+		t.Fatalf("pane scroll is vertical-only: longest line locks the splitter")
+	}
 	if w := a.contextScroll.MinSize().Width; w > contextMinWidth+2*16 {
 		t.Fatalf("pane floor = %vpx, blocks shrinking", w)
 	}
