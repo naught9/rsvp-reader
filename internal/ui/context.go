@@ -258,7 +258,11 @@ func (a *App) updateContext() {
 		return
 	}
 	textSize := theme.Size(theme.SizeNameText)
-	width := a.contextRich.Size().Width - 2*theme.Padding()
+	// The viewport width, never the content's: the scroller floors
+	// content at its MinSize (the longest laid line), so reading the
+	// content measures stale lines against themselves and shrinking
+	// never re-wraps.
+	width := a.contextScroll.Size().Width - 2*theme.Padding()
 	if width < 50 {
 		return // not laid out yet; next refresh fits
 	}
@@ -379,10 +383,10 @@ func (a *App) onPaneWidth(w float32) {
 // behind. Widths are compared at the RichText basis updateContext uses;
 // w (the watcher's width) only trips the dispatch guard above.
 func (a *App) rewrapIfNeeded(w float32) {
-	if !a.contextOn || a.book == nil || a.contextRich == nil {
+	if !a.contextOn || a.book == nil || a.contextScroll == nil {
 		return
 	}
-	rw := a.contextRich.Size().Width - 2*theme.Padding()
+	rw := a.contextScroll.Size().Width - 2*theme.Padding()
 	if rw < a.ctxWidth-8 || rw > a.ctxWidth+8 {
 		a.updateContext()
 	}

@@ -123,17 +123,9 @@ func TestLayoutCovers(t *testing.T) {
 // active line sank to the bottom, and a new batch jumped in.
 func TestBelowContextNeverDrains(t *testing.T) {
 	a, _ := newTestApp(t)
-	var paras []string
-	for p := 0; p < 30; p++ {
-		var ws []string
-		for i := 0; i < 20; i++ {
-			ws = append(ws, "w")
-		}
-		paras = append(paras, strings.Join(ws, " "))
-	}
-	a.setDocument(doc.FromText("long", strings.Join(paras, "\n\n")), "long")
+	a.setDocument(doc.FromText("long", longParas(30, 20)), "long")
 	a.toggleContext()
-	a.contextRich.Resize(fyne.NewSize(300, 600))
+	a.contextScroll.Resize(fyne.NewSize(300, 600))
 	nwords := len(a.book.Words)
 	for pos := 0; pos < nwords; pos += 7 {
 		a.player.Seek(pos)
@@ -160,7 +152,7 @@ func TestToggleContext(t *testing.T) {
 	}
 	// Headless canvases never lay out: force a size to run the real
 	// render path (layout, highlight, header, exact scroll).
-	a.contextRich.Resize(fyne.NewSize(300, 600))
+	a.contextScroll.Resize(fyne.NewSize(300, 600))
 	a.updateContext()
 	if len(a.contextRich.Segments) == 0 {
 		t.Fatalf("no lines rendered")
@@ -187,6 +179,50 @@ func TestContextPaneShrinkable(t *testing.T) {
 	if w := a.contextScroll.MinSize().Width; w > contextMinWidth+2*16 {
 		t.Fatalf("pane floor = %vpx, blocks shrinking", w)
 	}
+}
+
+// TestShrinkRewrapsToViewport replays the divider shrink: stale wide
+// lines must re-wrap to the narrowed viewport, not clip. Reading the
+// content width instead measures old lines against themselves and never
+// re-anchors.
+func TestShrinkRewrapsToViewport(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.setDocument(doc.FromText("long", longParas(30, 20)), "long")
+	a.toggleContext()
+	a.contextScroll.Resize(fyne.NewSize(600, 600))
+	a.player.Seek(300)
+	a.updateContext()
+	wideMax := maxWordsPerLine(a.ctxLines)
+	a.contextScroll.Resize(fyne.NewSize(200, 600))
+	a.updateContext()
+	if d := a.ctxWidth - (200 - 2*theme.Padding()); d < -8 || d > 8 {
+		t.Fatalf("layout width %.0f, want viewport ~%.0f", a.ctxWidth, 200-2*theme.Padding())
+	}
+	if narrow := maxWordsPerLine(a.ctxLines); narrow >= wideMax {
+		t.Fatalf("shrink kept %d words/line (was %d)", narrow, wideMax)
+	}
+}
+
+func maxWordsPerLine(lines []ctxLine) int {
+	m := 0
+	for _, ln := range lines {
+		if len(ln.words) > m {
+			m = len(ln.words)
+		}
+	}
+	return m
+}
+
+func longParas(n, per int) string {
+	var paras []string
+	for p := 0; p < n; p++ {
+		ws := make([]string, per)
+		for i := range ws {
+			ws[i] = "w"
+		}
+		paras = append(paras, strings.Join(ws, " "))
+	}
+	return strings.Join(paras, "\n\n")
 }
 
 func TestRewrapOnShrink(t *testing.T) {
