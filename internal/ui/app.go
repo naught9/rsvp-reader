@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
@@ -69,16 +70,21 @@ type App struct {
 	fontList    []SystemFont
 	fontScanned chan struct{}
 
-	tickTimer     *time.Timer
-	importGen     int
-	syncingTree   bool
-	contentsOn    bool
-	contextOn     bool
-	contextRich   *widget.RichText
-	contextScroll *container.Scroll
-	contextPane   fyne.CanvasObject
-	contextLine   int
-	lastSave      time.Time
+	tickTimer       *time.Timer
+	importGen       int
+	syncingTree     bool
+	contentsOn      bool
+	contextOn       bool
+	contextRich     *widget.RichText
+	contextHead     *canvas.Text
+	contextHeadText string
+	contextScroll   *container.Scroll
+	contextPane     fyne.CanvasObject
+	ctxLines        []ctxLine
+	ctxLo, ctxHi    int
+	ctxWidth        float32
+	ctxLine         int
+	lastSave        time.Time
 }
 
 // New builds the application. cliArg is an optional EPUB path.
@@ -556,7 +562,7 @@ func (a *App) setDocument(d *doc.Document, sourcePath string) {
 	a.nextBtn.Enable()
 	a.playBtn.SetText("Play")
 	a.chromeHidden = false
-	a.contextLine = -1 // new book re-anchors the glance pane
+	a.ctxLines = nil // new book re-anchors the glance pane
 	a.refreshAll()
 	a.poke()         // chrome visible, melts after idle
 	a.syncWakeLock() // fresh documents open paused

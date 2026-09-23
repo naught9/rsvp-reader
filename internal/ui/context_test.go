@@ -3,90 +3,96 @@ package ui
 import (
 	"testing"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
-func activeText(segs []widget.RichTextSegment, active int) string {
-	if active < 0 || active >= len(segs) {
-		return ""
-	}
-	if ts, ok := segs[active].(*widget.TextSegment); ok {
-		return ts.Text
+func textSize() float32 { return theme.Size(theme.SizeNameText) }
+
+func activeText(segs []widget.RichTextSegment) string {
+	for _, s := range segs {
+		if ts, ok := s.(*widget.TextSegment); ok && ts.Style == contextActive {
+			return ts.Text
+		}
 	}
 	return ""
 }
 
-func TestContextWindowQuantized(t *testing.T) {
-	// Within one estimated line the bounds hold; crossing a line moves
-	// them, and the active word is always inside.
-	lo1, hi1 := contextWindow(200, 41, 8, 30)
-	lo2, hi2 := contextWindow(200, 47, 8, 30)
-	if lo1 != lo2 || hi1 != hi2 {
-		t.Fatalf("same-line window moved: [%d %d] vs [%d %d]", lo1, hi1, lo2, hi2)
+func TestLayoutLinesWraps(t *testing.T) {
+	words := []string{"one", "two", "three", "four", "five", "six", "seven", "eight"}
+	narrow := layoutLines(words, map[int]bool{}, 0, 7, 60, textSize())
+	if len(narrow) < 3 {
+		t.Fatalf("narrow width gave %d lines, want several", len(narrow))
 	}
-	lo3, hi3 := contextWindow(200, 48, 8, 30)
-	if lo3 == lo1 {
-		t.Fatalf("line-crossing window held: [%d %d]", lo3, hi3)
+	wide := layoutLines(words, map[int]bool{}, 0, 7, 10000, textSize())
+	if len(wide) != 1 {
+		t.Fatalf("wide width gave %d lines, want 1", len(wide))
 	}
-	for pos := 0; pos < 200; pos++ {
-		lo, hi := contextWindow(200, pos, 8, 30)
-		if pos < lo || pos > hi {
-			t.Fatalf("pos %d outside [%d %d]", pos, lo, hi)
-		}
+	// Every word placed exactly once, in order.
+	seen := 0
+	for _, ln := range narrow {
+		seen += len(ln.words)
 	}
-	// Clamped at the ends.
-	if lo, _ := contextWindow(10, 0, 8, 30); lo != 0 {
-		t.Fatalf("start lo = %d", lo)
-	}
-	if _, hi := contextWindow(10, 9, 8, 30); hi != 9 {
-		t.Fatalf("end hi = %d", hi)
+	if seen != len(words) {
+		t.Fatalf("placed %d words, want %d", seen, len(words))
 	}
 }
 
-func TestContextSegments(t *testing.T) {
+func TestLayoutLinesParaBreak(t *testing.T) {
+	words := []string{"one", "two", "three", "four"}
+	lines := layoutLines(words, map[int]bool{2: true}, 0, 3, 10000, textSize())
+	if len(lines) != 2 {
+		t.Fatalf("para start gave %d lines, want 2", len(lines))
+	}
+	if !lines[1].paraBreak || lines[1].words[0] != 2 {
+		t.Fatalf("second line = %+v", lines[1])
+	}
+}
+
+func TestActiveLineMapping(t *testing.T) {
 	words := []string{"one", "two", "three", "four", "five", "six"}
-	starts := []int{0, 3}
-	segs, active, _ := contextSegments(words, starts, 0, 5, 4)
-	if got := activeText(segs, active); got != "five" {
-		t.Fatalf("active = %q, want five", got)
+	lines := layoutLines(words, map[int]bool{}, 0, 5, 10000, textSize())
+	if got := activeLine(lines, 3); got != 0 {
+		t.Fatalf("single-line active = %d", got)
 	}
-	// A break must precede the paragraph start at index 3.
-	found := false
-	for i, s := range segs {
-		if ts, ok := s.(*widget.TextSegment); ok && ts.Text == "four" && i > 0 {
-			if prev, ok := segs[i-1].(*widget.TextSegment); ok && !prev.Style.Inline {
-				found = true
-			}
+	narrow := layoutLines(words, map[int]bool{}, 0, 5, 60, textSize())
+	first, last := activeLine(narrow, 0), activeLine(narrow, 5)
+	if first == last {
+		t.Fatalf("narrow layout collapses to one line")
+	}
+	// Active line index is monotonic in position.
+	prev := -1
+	for pos := 0; pos < 6; pos++ {
+		if l := activeLine(narrow, pos); l < prev {
+			t.Fatalf("non-monotonic at %d", pos)
+		} else {
+			prev = l
 		}
 	}
-	if !found {
-		t.Fatalf("no paragraph break before %q", "four")
-	}
-	if ts := segs[active].(*widget.TextSegment); ts.Style != contextActive {
-		t.Fatalf("active segment not styled active")
-	}
 }
 
-func TestContextSegmentsEllipses(t *testing.T) {
-	words := []string{"a", "b", "c", "d", "e"}
-	segs, active, frac := contextSegments(words, []int{0}, 1, 3, 2)
-	if got := activeText(segs, active); got != "c" {
-		t.Fatalf("active = %q, want c", got)
+func TestRenderLinesActiveAndRows(t *testing.T) {
+	words := []string{"one", "two", "three", "four", "five", "six"}
+	lines := []ctxLine{
+		{words: []int{0, 1}},
+		{words: []int{2, 3}, paraBreak: true},
+		{words: []int{4, 5}},
 	}
-	first := segs[0].(*widget.TextSegment)
-	last := segs[len(segs)-1].(*widget.TextSegment)
-	if first.Text != "… " || last.Text != " …" {
-		t.Fatalf("truncated ends = %q / %q", first.Text, last.Text)
+	segs, activeRow, rows := renderLines(words, lines, 0, 2, 3)
+	if got := activeText(segs); got != "four" {
+		t.Fatalf("active = %q, want four", got)
 	}
-	if frac != 0.5 {
-		t.Fatalf("frac = %v, want 0.5", frac)
+	// 3 text rows + 2 breaks between lines + 1 blank para row = 6.
+	if rows != 6 {
+		t.Fatalf("rows = %d, want 6", rows)
 	}
-}
-
-func TestContextSegmentsEmpty(t *testing.T) {
-	if segs, active, _ := contextSegments(nil, nil, 0, -1, 0); segs != nil || active != -1 {
-		t.Fatalf("empty input = %v, %d", segs, active)
+	// "four" is the second word of the para line: text rows before it
+	// are line0, break, blank, so its row is 3.
+	if activeRow != 3 {
+		t.Fatalf("activeRow = %d, want 3", activeRow)
 	}
+	_ = fyne.TextStyle{}
 }
 
 func TestToggleContext(t *testing.T) {
@@ -101,8 +107,15 @@ func TestToggleContext(t *testing.T) {
 	if !a.prefs().BoolWithFallback("contextPane", false) {
 		t.Fatalf("choice not persisted")
 	}
-	if a.contextRich == nil || len(a.contextRich.Segments) == 0 {
-		t.Fatalf("pane has no content after enable")
+	// Headless canvases never lay out: force a size to run the real
+	// render path (layout, highlight, header, exact scroll).
+	a.contextRich.Resize(fyne.NewSize(300, 600))
+	a.updateContext()
+	if len(a.contextRich.Segments) == 0 {
+		t.Fatalf("no lines rendered")
+	}
+	if got := activeText(a.contextRich.Segments); got != a.player.Current() {
+		t.Fatalf("highlight = %q, player = %q", got, a.player.Current())
 	}
 	a.toggleContext()
 	if a.contextOn {
