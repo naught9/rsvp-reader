@@ -15,7 +15,7 @@ Built from scratch with [Fyne](https://fyne.io/). Interaction design informed by
 - Play/pause, previous/next word, ±25-word jumps, slim progress hairline (word count, %, time remaining), current-section label
 - Text cleanup for serial reading: hyphen compounds split (`this-word` → `this-` / `word`), verse line numbers and page-number marginalia pruned, unreadable PDF pages skipped with a warning instead of hanging
 - Remembers position, speed, and settings per book (keyed by content hash), plus a recent-books list
-- Dark theme by default, light theme available; adjustable reader font size and a searchable system font picker for the reader typeface (TrueType, OpenType, and collections)
+- Dark theme by default, light theme available; adjustable reader font size and a searchable system font picker for the reader typeface (RSVP word and context pane; TrueType, OpenType, and collections)
 - Fully offline — no accounts, telemetry, or network requests
 - Display stays awake while playing (macOS power assertion); cursor hides with the chrome in zen mode
 

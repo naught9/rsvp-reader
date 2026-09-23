@@ -210,3 +210,19 @@ func TestRewrapOnShrink(t *testing.T) {
 		t.Fatalf("steady width rebuilt the layout")
 	}
 }
+
+func TestContextUsesReaderFontSlot(t *testing.T) {
+	// The pane renders the reader typeface through the theme's Monospace
+	// slot (shared with the ORP display); measuring must use the same
+	// style or the wrap drifts from what's drawn.
+	for name, st := range map[string]fyne.TextStyle{
+		"plain": contextPlain.TextStyle, "dim": contextDim.TextStyle, "active": contextActive.TextStyle,
+	} {
+		if !st.Monospace {
+			t.Fatalf("%s style left the reader font slot", name)
+		}
+	}
+	if !ctxMeasureStyle.Monospace {
+		t.Fatalf("layout measures outside the reader font slot")
+	}
+}

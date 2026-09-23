@@ -1128,6 +1128,11 @@ func (a *App) showSettings() {
 // applyReaderFont loads the selected family (or restores the default),
 // keeping the previous typeface when the file fails to load.
 func (a *App) applyReaderFont(selected string, paths map[string]string) {
+	// A new typeface re-wraps the glance pane even at the same width.
+	defer func() {
+		a.ctxLines = nil
+		a.refreshAll()
+	}()
 	if selected == "" || selected == fontDefaultLabel {
 		a.readerFont = nil
 		a.prefs().SetString("readerFontPath", "")
@@ -1198,7 +1203,8 @@ func (a *App) reconcileSavedFont() {
 	a.readerFont = fyne.NewStaticResource(filepath.Base(scanned), data)
 	a.prefs().SetString("readerFontPath", scanned)
 	a.applyThemePref()
-	a.orp.Refresh()
+	a.ctxLines = nil
+	a.refreshAll()
 }
 
 // loadSavedFont restores the persisted reader typeface, falling back to

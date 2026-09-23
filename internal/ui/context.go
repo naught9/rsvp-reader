@@ -78,16 +78,23 @@ func anchorLayout(words []string, starts map[int]bool, pos, nwords int, width, t
 	}
 }
 
+// ctxMeasureStyle must match the segment styles below: the layout
+// measures with the same font it renders, or the wrap drifts.
+var ctxMeasureStyle = fyne.TextStyle{Monospace: true}
+
 var (
-	// Quiet body copy; the active word alone carries color.
-	contextPlain = widget.RichTextStyle{Inline: true, ColorName: theme.ColorNameDisabled}
+	// Quiet body copy; the active word alone carries color. Monospace
+	// renders the reader typeface: the theme carries the user's font in
+	// that slot (shared with the ORP display).
+	contextPlain = widget.RichTextStyle{Inline: true, ColorName: theme.ColorNameDisabled, TextStyle: ctxMeasureStyle}
 	contextBreak = widget.RichTextStyle{Inline: false}
-	contextDim   = widget.RichTextStyle{Inline: true, ColorName: theme.ColorNameDisabled}
+	contextDim   = widget.RichTextStyle{Inline: true, ColorName: theme.ColorNameDisabled, TextStyle: ctxMeasureStyle}
 	// Active word: theme red only, echoing the ORP focal letter. No bold:
 	// weight changes advance width and the line shivers as it moves.
 	contextActive = widget.RichTextStyle{
 		Inline:    true,
 		ColorName: theme.ColorNameError,
+		TextStyle: ctxMeasureStyle,
 	}
 )
 
@@ -101,7 +108,7 @@ type ctxLine struct {
 // layoutLines wraps words[lo..hi] to maxWidth at textSize, breaking
 // words greedily and forcing a break at each paragraph start.
 func layoutLines(words []string, starts map[int]bool, lo, hi int, maxWidth, textSize float32) []ctxLine {
-	spaceW := fyne.MeasureText(" ", textSize, fyne.TextStyle{}).Width
+	spaceW := fyne.MeasureText(" ", textSize, ctxMeasureStyle).Width
 	var lines []ctxLine
 	cur := ctxLine{}
 	curW := float32(0)
@@ -117,7 +124,7 @@ func layoutLines(words []string, starts map[int]bool, lo, hi int, maxWidth, text
 			flush()
 			cur.paraBreak = true
 		}
-		w := fyne.MeasureText(words[i], textSize, fyne.TextStyle{}).Width
+		w := fyne.MeasureText(words[i], textSize, ctxMeasureStyle).Width
 		if len(cur.words) > 0 {
 			w += spaceW
 		}
