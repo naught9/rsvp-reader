@@ -702,7 +702,7 @@ func (a *App) togglePlay() {
 func (a *App) wasResumed() bool { return a.lastSave.IsZero() == false || a.player.Pos() != 0 }
 
 // onJump moves a chunk, unless typing (entries keep native keys).
-// Skipped when typing: Shift+arrows there are text selection.
+// Skipped when typing: entries keep their native keys.
 func (a *App) onJump(dir int) {
 	if _, ok := a.win.Canvas().Focused().(*widget.Entry); ok {
 		return
@@ -710,7 +710,7 @@ func (a *App) onJump(dir int) {
 	a.jumpWords(dir * jumpChunk)
 }
 
-// jumpChunk is the Shift+arrow jump distance in words.
+// jumpChunk is the Option+arrow jump distance in words.
 const jumpChunk = 25
 
 // jumpWords moves by a chunk, clamping at the ends. Like stepping, it
