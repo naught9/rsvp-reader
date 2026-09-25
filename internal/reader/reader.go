@@ -253,7 +253,21 @@ func TrailingPause(word string) int {
 	if len([]rune(body)) == 1 && last == '.' {
 		return 0
 	}
+	if last == '.' && commonAbbrev[strings.ToLower(body)] {
+		return 0
+	}
 	return 2
+}
+
+// commonAbbrev holds titles that end in a period but never end a
+// sentence ("Dr." lingers two beats without this). Deliberately tight:
+// ordinary words are excluded, so a real sentence end never loses its
+// beat to this list.
+var commonAbbrev = map[string]bool{
+	"mr": true, "mrs": true, "ms": true, "dr": true,
+	"jr": true, "sr": true, "prof": true, "rev": true,
+	"st": true, "gen": true, "col": true, "capt": true,
+	"lt": true, "sgt": true, "gov": true, "pres": true,
 }
 
 // EndsSentence reports whether a word closes a sentence.

@@ -193,7 +193,8 @@ func TestTrailingPause(t *testing.T) {
 			t.Errorf("TrailingPause(%q) = %d, want 1", w, got)
 		}
 	}
-	none := []string{"word", "don't", "3.14", "v2.0", "e.g.", "U.S.", "J.", "12,109", "well-known", "dogs'", "\u2014", "this-", ""}
+	none := []string{"word", "don't", "3.14", "v2.0", "e.g.", "U.S.", "J.", "12,109", "well-known", "dogs'", "\u2014", "this-", "",
+		"Dr.", "Mr.", "Mrs.", "Ms.", "St.", "Prof.", "Jr.", "Gov."}
 	for _, w := range none {
 		if got := TrailingPause(w); got != 0 {
 			t.Errorf("TrailingPause(%q) = %d, want 0", w, got)
@@ -201,6 +202,10 @@ func TestTrailingPause(t *testing.T) {
 	}
 	if !EndsSentence("word.") || EndsSentence("word,") {
 		t.Errorf("EndsSentence compatibility")
+	}
+	// Titles abbreviate, sentences terminate: "no." still breathes.
+	if TrailingPause("Dr!") != 2 || TrailingPause("forest.") != 2 || TrailingPause("no.") != 2 {
+		t.Errorf("title guard overreached")
 	}
 }
 
