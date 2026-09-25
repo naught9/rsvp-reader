@@ -14,6 +14,10 @@ func TestRarityBeats(t *testing.T) {
 	if got := RarityBeats("prizes"); got != 0 {
 		t.Errorf("prizes = %d, want 0", got)
 	}
+	// Mid band breathes once (absinthe ≈ 2.7 in the table).
+	if got := RarityBeats("absinthe"); got != 1 {
+		t.Errorf("absinthe = %d, want 1", got)
+	}
 	// Invented words miss the table: the New Sun case.
 	for _, w := range []string{"fuligin", "cacogen", "Severian", "fuligin-", "FULIGIN"} {
 		if got := RarityBeats(w); got < 2 {
