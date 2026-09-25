@@ -16,7 +16,7 @@ func textSize() float32 { return theme.Size(theme.SizeNameText) }
 
 func activeText(segs []widget.RichTextSegment) string {
 	for _, s := range segs {
-		if ts, ok := s.(*widget.TextSegment); ok && ts.Style.ColorName == theme.ColorNameForeground {
+		if ts, ok := s.(*widget.TextSegment); ok && ts.Style.TextStyle.Underline {
 			return ts.Text
 		}
 	}
@@ -258,10 +258,9 @@ func TestContextUsesReaderFontSlot(t *testing.T) {
 			t.Fatalf("%s style left the reader font slot", name)
 		}
 	}
-	// Dark keeps the quiet dimmed body; light takes full ink, where the
-	// dimmed rung is illegible.
-	if got := contextBodyStyle().ColorName; got != theme.ColorNameDisabled {
-		t.Fatalf("dark body = %q, want the quiet rung", got)
+	// Full-ink body on every variant.
+	if got := contextBodyStyle().ColorName; got != theme.ColorNameForeground {
+		t.Fatalf("body = %q, want full ink", got)
 	}
 	if !ctxMeasureStyle.Monospace {
 		t.Fatalf("layout measures outside the reader font slot")
@@ -286,19 +285,19 @@ func TestRenderLinesEllipses(t *testing.T) {
 	}
 }
 
-func TestContextContrastBothVariants(t *testing.T) {
-	// Dark: dimmed body, full-ink active, no underline needed.
-	if got := contextBodyForVariant(false).ColorName; got != theme.ColorNameDisabled {
-		t.Fatalf("dark body = %q", got)
+func TestContextContrast(t *testing.T) {
+	// Full-ink body on every variant; the active word adds underline.
+	if got := contextBodyStyle().ColorName; got != theme.ColorNameForeground {
+		t.Fatalf("body = %q", got)
 	}
-	if st := contextActiveForVariant(false); st.ColorName != theme.ColorNameForeground || st.TextStyle.Underline {
-		t.Fatalf("dark active = %+v", st)
+	if contextBodyStyle().TextStyle.Underline {
+		t.Fatalf("body underlined")
 	}
-	// Light: body already full ink, so the active word underlines.
-	if got := contextBodyForVariant(true).ColorName; got != theme.ColorNameForeground {
-		t.Fatalf("light body = %q", got)
+	st := contextActiveStyle()
+	if st.ColorName != theme.ColorNameForeground || !st.TextStyle.Underline {
+		t.Fatalf("active = %+v", st)
 	}
-	if st := contextActiveForVariant(true); st.ColorName != theme.ColorNameForeground || !st.TextStyle.Underline {
-		t.Fatalf("light active = %+v", st)
+	if st.TextStyle.Bold || st.TextStyle.Monospace != contextBodyStyle().TextStyle.Monospace {
+		t.Fatalf("active changes metrics: %+v", st.TextStyle)
 	}
 }

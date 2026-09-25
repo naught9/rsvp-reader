@@ -87,19 +87,11 @@ var ctxMeasureStyle = fyne.TextStyle{Monospace: true}
 // that slot (shared with the ORP display).
 var contextBreak = widget.RichTextStyle{Inline: false}
 
-// contextBodyStyle is the quiet body ink, resolved per variant at render
-// time: dimmed white on the near-black canvas, full ink on light surfaces
-// where the dimmed rung falls below legibility.
+// contextBodyStyle is the full-ink body copy. Underline (not brightness,
+// not red, not bold) marks the active word, so nothing reflows as the
+// highlight glides.
 func contextBodyStyle() widget.RichTextStyle {
-	return contextBodyForVariant(isLightVariant())
-}
-
-func contextBodyForVariant(light bool) widget.RichTextStyle {
-	name := theme.ColorNameDisabled
-	if light {
-		name = theme.ColorNameForeground
-	}
-	return widget.RichTextStyle{Inline: true, ColorName: name, TextStyle: ctxMeasureStyle}
+	return widget.RichTextStyle{Inline: true, ColorName: theme.ColorNameForeground, TextStyle: ctxMeasureStyle}
 }
 
 // contextActiveStyle marks the current word by contrast, never hue: a
@@ -107,24 +99,9 @@ func contextBodyForVariant(light bool) widget.RichTextStyle {
 // the body already sits at full ink and brightness cannot step further).
 // No bold: weight changes advance width and the line shivers as it moves.
 func contextActiveStyle() widget.RichTextStyle {
-	return contextActiveForVariant(isLightVariant())
-}
-
-func contextActiveForVariant(light bool) widget.RichTextStyle {
-	st := widget.RichTextStyle{
-		Inline:    true,
-		ColorName: theme.ColorNameForeground,
-		TextStyle: ctxMeasureStyle,
-	}
-	if light {
-		st.TextStyle.Underline = true
-	}
+	st := contextBodyStyle()
+	st.TextStyle.Underline = true
 	return st
-}
-
-func isLightVariant() bool {
-	return fyne.CurrentApp() != nil &&
-		fyne.CurrentApp().Settings().ThemeVariant() == theme.VariantLight
 }
 
 // ctxLine is one laid-out row: word indices plus whether a paragraph
