@@ -294,7 +294,10 @@ func (a *App) readerCenter() fyne.CanvasObject {
 		treePane := container.NewBorder(
 			newMirrorSpacer(a.topWrap), newMirrorSpacer(a.bottomWrap),
 			nil, nil, a.tree)
-		return container.NewHSplit(treePane, center)
+		// Narrow by default: a TOC needs a sixth of the window, not half.
+		treeSplit := container.NewHSplit(treePane, center)
+		treeSplit.SetOffset(0.17)
+		return treeSplit
 	}
 	return center
 }
