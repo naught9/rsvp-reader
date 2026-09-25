@@ -24,6 +24,9 @@ type ORPWidget struct {
 
 var focalRed = color.NRGBA{R: 0xff, G: 0x44, B: 0x44, A: 0xff}
 
+// guideThickness is the single width for focal ticks and rules.
+const guideThickness float32 = 2
+
 // NewORPWidget creates the reader display with a default size.
 func NewORPWidget() *ORPWidget {
 	w := &ORPWidget{FontSize: 64, Highlight: true, Placeholder: "Open a book to begin"}
@@ -59,12 +62,12 @@ func (w *ORPWidget) CreateRenderer() fyne.WidgetRenderer {
 	r.focal = canvas.NewText("", focalRed)
 	r.after = canvas.NewText("", theme.ForegroundColor())
 	r.placeholder = canvas.NewText(w.Placeholder, theme.DisabledColor())
-	r.guideTop = canvas.NewRectangle(theme.SeparatorColor())
-	r.guideBottom = canvas.NewRectangle(theme.SeparatorColor())
+	r.guideTop = canvas.NewRectangle(focusGuideColor())
+	r.guideBottom = canvas.NewRectangle(focusGuideColor())
 	// Focus rules: full-width horizontals meeting the focal ticks
-	// end-to-end, framing the word band. Same separator color.
-	r.ruleTop = canvas.NewRectangle(theme.SeparatorColor())
-	r.ruleBottom = canvas.NewRectangle(theme.SeparatorColor())
+	// end-to-end, framing the word band. Same opaque guide ink.
+	r.ruleTop = canvas.NewRectangle(focusGuideColor())
+	r.ruleBottom = canvas.NewRectangle(focusGuideColor())
 	for _, t := range []*canvas.Text{r.before, r.focal, r.after, r.placeholder} {
 		t.TextStyle = fyne.TextStyle{Monospace: true}
 	}
@@ -99,6 +102,11 @@ func (r *orpRenderer) apply() {
 		r.focal.Color = fg
 		r.focal.TextStyle = fyne.TextStyle{Monospace: true}
 	}
+	// Guide ink re-resolves every refresh: a theme switch strands any
+	// color snapshotted at creation (the old light-mode invisibility).
+	gc := focusGuideColor()
+	r.guideTop.FillColor, r.guideBottom.FillColor = gc, gc
+	r.ruleTop.FillColor, r.ruleBottom.FillColor = gc, gc
 	r.placeholder.Text = w.Placeholder
 	if w.Focal == "" && w.Before == "" && w.After == "" {
 		r.placeholder.Show()
@@ -127,13 +135,14 @@ func (r *orpRenderer) Layout(size fyne.Size) {
 	midY := size.Height / 2
 
 	// Focal guides: fixed markers above/below the recognition point.
-	gw, gh := float32(3), float32(36)
+	// Ticks and rules share one thickness so intersections stay even.
+	gw, gh := guideThickness, float32(36)
 	r.guideTop.Resize(fyne.NewSize(gw, gh))
 	r.guideTop.Move(fyne.NewPos(cx-gw/2, midY-90))
 	r.guideBottom.Resize(fyne.NewSize(gw, gh))
 	r.guideBottom.Move(fyne.NewPos(cx-gw/2, midY+54))
 	// Rules span the pane at the ticks' outer ends, touching them.
-	rh := float32(2)
+	rh := guideThickness
 	r.ruleTop.Resize(fyne.NewSize(size.Width, rh))
 	r.ruleTop.Move(fyne.NewPos(0, midY-90-rh/2))
 	r.ruleBottom.Resize(fyne.NewSize(size.Width, rh))

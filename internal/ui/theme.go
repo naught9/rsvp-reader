@@ -42,6 +42,12 @@ var (
 	scandiScrollBarLt  = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x40} // ~25%
 	scandiMenuBGLt     = color.NRGBA{R: 0xf2, G: 0xf2, B: 0xf1, A: 0xff}
 	scandiDisabledBlLt = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x0d} // ~5%
+	// Focus guides are fully opaque (overlapping translucent hairlines
+	// double up at intersections). Values match the old 12% separator
+	// over each canvas: dark #0a0a0a + 12% white ≈ #262626, paper
+	// #fafaf9 + 12% black ≈ #dededb.
+	scandiGuide   = color.NRGBA{R: 0x26, G: 0x26, B: 0x26, A: 0xff}
+	scandiGuideLt = color.NRGBA{R: 0xde, G: 0xde, B: 0xdb, A: 0xff}
 )
 
 // scandiTheme wraps the stock dark theme, overriding only the neutral
@@ -164,6 +170,15 @@ func (t *scandiTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 
 func (t *scandiTheme) Size(name fyne.ThemeSizeName) float32 {
 	return t.base.Size(name)
+}
+
+// focusGuideColor is the opaque focal-guide ink for the current variant.
+func focusGuideColor() color.Color {
+	if fyne.CurrentApp() != nil &&
+		fyne.CurrentApp().Settings().ThemeVariant() == theme.VariantLight {
+		return scandiGuideLt
+	}
+	return scandiGuide
 }
 
 // secondaryInk returns the supporting-ink rung for the current variant:

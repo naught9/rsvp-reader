@@ -5,7 +5,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/theme"
 )
 
 func TestFocusRules(t *testing.T) {
@@ -27,8 +26,8 @@ func TestFocusRules(t *testing.T) {
 		if rule.Position().Y != wantY[name] {
 			t.Fatalf("%s rule y = %v, want %v", name, rule.Position().Y, wantY[name])
 		}
-		if rule.FillColor != theme.SeparatorColor() {
-			t.Fatalf("%s rule color diverges from the separators", name)
+		if rule.FillColor != focusGuideColor() {
+			t.Fatalf("%s rule color diverges from the guide ink", name)
 		}
 	}
 	// Touching: top tick starts at its rule, bottom tick ends at its rule.
@@ -37,5 +36,21 @@ func TestFocusRules(t *testing.T) {
 	}
 	if r.guideBottom.Position().Y+r.guideBottom.Size().Height != midY+90 {
 		t.Fatalf("bottom tick does not meet its rule")
+	}
+	// One thickness everywhere, fully opaque, one shared ink: nothing
+	// doubles up at the intersections.
+	if r.guideTop.Size().Width != guideThickness || r.ruleTop.Size().Height != guideThickness {
+		t.Fatalf("tick %v vs rule %v: thicknesses differ", r.guideTop.Size(), r.ruleTop.Size())
+	}
+	for name, o := range map[string]*canvas.Rectangle{
+		"tickTop": r.guideTop, "tickBottom": r.guideBottom,
+		"ruleTop": r.ruleTop, "ruleBottom": r.ruleBottom,
+	} {
+		if o.FillColor != focusGuideColor() {
+			t.Fatalf("%s ink diverges", name)
+		}
+		if _, _, _, a := o.FillColor.RGBA(); a != 0xffff {
+			t.Fatalf("%s not opaque", name)
+		}
 	}
 }
