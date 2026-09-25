@@ -235,3 +235,38 @@ func TestTickSentenceBeat(t *testing.T) {
 		t.Fatalf("no-pause deadline = %v, want 200ms", d)
 	}
 }
+
+func TestTickRareStackingAndCap(t *testing.T) {
+	now := time.Now()
+	// Rare sentence-final word: 2 punct + 2 rarity = 4, at the cap
+	// (deadlines anchor at tick time: 100 tick + 100 base + 400 extra).
+	p := NewPlayer([]string{"the", "fuligin.", "the"}, 600) // 100ms beat
+	p.SentencePause = true
+	p.RareWordPause = true
+	p.Play(now)
+	p.Tick(now.Add(100 * time.Millisecond))
+	if got := p.Current(); got != "fuligin." {
+		t.Fatalf("at %q", got)
+	}
+	if d := p.Deadline().Sub(now); d != 600*time.Millisecond {
+		t.Fatalf("stacked deadline = %v, want 600ms", d)
+	}
+	// Rare long sentence-final word: 2 + 3 = 5, capped to 4.
+	c := NewPlayer([]string{"the", "pneumonoultramicroscopicsilicovolcanoconiosis.", "the"}, 600)
+	c.SentencePause = true
+	c.RareWordPause = true
+	c.Play(now)
+	c.Tick(now.Add(100 * time.Millisecond))
+	if d := c.Deadline().Sub(now); d != 600*time.Millisecond {
+		t.Fatalf("capped deadline = %v, want 600ms", d)
+	}
+	// Common word: no beats either way.
+	q := NewPlayer([]string{"the", "the", "the"}, 600)
+	q.SentencePause = true
+	q.RareWordPause = true
+	q.Play(now)
+	q.Tick(now.Add(100 * time.Millisecond))
+	if d := q.Deadline().Sub(now); d != 200*time.Millisecond {
+		t.Fatalf("common deadline = %v, want 200ms", d)
+	}
+}

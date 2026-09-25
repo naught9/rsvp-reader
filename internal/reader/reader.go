@@ -3,6 +3,8 @@ package reader
 import (
 	"fmt"
 	"strings"
+
+	"rsvp-reader/internal/vocab"
 	"time"
 	"unicode"
 )
@@ -116,9 +118,13 @@ type Player struct {
 	ended    bool
 	wpm      int
 	deadline time.Time
-	// SentencePause lingers one extra beat on sentence-final words
-	// (your "treat the period as another word"), aiding comprehension.
+	// SentencePause lingers extra beats on punctuation (clause one,
+	// sentence two), aiding comprehension.
 	SentencePause bool
+	// RareWordPause lingers extra beats on uncommon, rare, and invented
+	// words (vocab tiers 1-2 plus a length beat), so unknown words can
+	// actually be read.
+	RareWordPause bool
 
 	// SectionAt maps a word index to its section label; wired by the UI
 	// from the book's TOC. Nil means no labels.
@@ -190,12 +196,26 @@ func (p *Player) Tick(now time.Time) (advanced bool) {
 	}
 	p.pos++
 	p.deadline = now.Add(Interval(p.wpm))
+	extra := 0
 	if p.SentencePause {
 		// Clause marks breathe one beat, sentence marks two.
-		p.deadline = p.deadline.Add(time.Duration(TrailingPause(p.words[p.pos])) * Interval(p.wpm))
+		extra += TrailingPause(p.words[p.pos])
+	}
+	if p.RareWordPause {
+		extra += vocab.RarityBeats(p.words[p.pos])
+	}
+	if extra > maxExtraBeats {
+		extra = maxExtraBeats
+	}
+	if extra > 0 {
+		p.deadline = p.deadline.Add(time.Duration(extra) * Interval(p.wpm))
 	}
 	return true
 }
+
+// maxExtraBeats caps stacked punctuation + rarity beats: the worst case
+// (a rare sentence-final word) lingers ~1s at 300 WPM, never stalls.
+const maxExtraBeats = 4
 
 // TrailingPause is the extra beats a word earns from its final mark: 2
 // for sentence ends (. ! ? ellipsis), 1 for clause marks (, : ;), 0

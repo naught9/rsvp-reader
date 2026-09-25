@@ -22,6 +22,7 @@ import (
 	"rsvp-reader/internal/pdf"
 	"rsvp-reader/internal/reader"
 	"rsvp-reader/internal/store"
+	"rsvp-reader/internal/vocab"
 	"rsvp-reader/internal/wake"
 )
 
@@ -129,6 +130,36 @@ func (a *App) prefWPM() int        { return a.prefs().IntWithFallback("wpm", rea
 func (a *App) prefHighlight() bool { return a.prefs().BoolWithFallback("highlight", true) }
 func (a *App) prefSentencePause() bool {
 	return a.prefs().BoolWithFallback("sentencePause", true)
+}
+func (a *App) prefRarePause() bool { return a.prefs().BoolWithFallback("rarePause", true) }
+
+// vocabFitsBook guards the rarity table: when over missThreshold of the
+// sample misses (non-English text, mostly), pacing everything slow would
+// be wrong, so the book opts out.
+func vocabFitsBook(words []string) bool {
+	const sampleSize = 300
+	const missThreshold = 0.4
+	n := len(words)
+	if n > sampleSize {
+		n = sampleSize
+	}
+	if n == 0 {
+		return true
+	}
+	miss := 0
+	for _, w := range words[:n] {
+		if vocab.RarityBeats(w) >= 2 {
+			miss++
+		}
+	}
+	return float64(miss)/float64(n) <= missThreshold
+}
+
+func trimJoin(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a + " " + b
 }
 func (a *App) prefFontSize() float64 {
 	return a.prefs().FloatWithFallback("fontSize", 64)
@@ -544,6 +575,7 @@ func (a *App) setDocument(d *doc.Document, sourcePath string) {
 	a.player = reader.NewPlayer(d.Words, wpm)
 	a.player.SectionAt = d.SectionLabel
 	a.player.SentencePause = a.prefSentencePause()
+	a.player.RareWordPause = a.prefRarePause() && vocabFitsBook(d.Words)
 	a.setWPM(wpm)
 	a.buildTOCModel()
 	a.titleLabel.SetText(docTitle(d))
@@ -551,6 +583,9 @@ func (a *App) setDocument(d *doc.Document, sourcePath string) {
 		a.setStatus(d.TOCWarning)
 	} else {
 		a.setStatus("")
+	}
+	if a.prefRarePause() && !a.player.RareWordPause {
+		a.setStatus(trimJoin(a.statusLabel.Text, "Rare-word pacing off: most words here are outside the English table."))
 	}
 	// Restore last position and settings for this fingerprint.
 	if a.db != nil {
@@ -1089,9 +1124,12 @@ func (a *App) showSettings() {
 	}
 	sentencePause := widget.NewCheck("", nil)
 	sentencePause.SetChecked(a.prefSentencePause())
+	rarePause := widget.NewCheck("", nil)
+	rarePause.SetChecked(a.prefRarePause())
 	form := widget.NewForm(
 		widget.NewFormItem("Highlight", highlight),
 		widget.NewFormItem("Pause on punctuation", sentencePause),
+		widget.NewFormItem("Slow down for rare words", rarePause),
 		widget.NewFormItem("Font size", fontSizeSlider),
 		widget.NewFormItem("Reader font", fontPicker),
 		widget.NewFormItem("Theme", themeSel),
@@ -1107,8 +1145,10 @@ func (a *App) showSettings() {
 		a.orp.Highlight = highlight.Checked
 		a.prefs().SetBool("highlight", highlight.Checked)
 		a.prefs().SetBool("sentencePause", sentencePause.Checked)
+		a.prefs().SetBool("rarePause", rarePause.Checked)
 		if a.player != nil {
 			a.player.SentencePause = sentencePause.Checked
+			a.player.RareWordPause = rarePause.Checked && vocabFitsBook(a.book.Words)
 		}
 		a.orp.FontSize = float32(fontSizeSlider.Value)
 		a.prefs().SetFloat("fontSize", fontSizeSlider.Value)

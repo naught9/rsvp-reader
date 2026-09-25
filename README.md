@@ -10,6 +10,7 @@ Built from scratch with [Fyne](https://fyne.io/). Interaction design informed by
 - Hierarchical, collapsible table of contents; entries targeting headings inside a file start at that heading's first word (PDFs navigate by page, pasted text reads as one section)
 - RSVP playback with Optimal Recognition Point (ORP) focal-letter highlight (toggleable), 50–1000 WPM via full-width slider, arrow keys, or exact numeric entry (default 300)
 - Optional punctuation pauses: clause marks (, : ;) breathe one beat, sentence marks (. ! ? …) two (toggle in Settings)
+- Optional pacing aids (toggles in Settings): rare and invented words linger by frequency (wordfreq data, attributed in `internal/vocab/data`), with auto-off for non-English books
 - Zen reading mode: chrome auto-hides while playing and returns on mouse move; pause always shows and holds; clicking the word toggles playback
 - Optional context pane: the surrounding paragraphs beside the RSVP word, with the active word gently highlighted and followed (toggle with the Context button or `C`)
 - Play/pause, previous/next word, ±25-word jumps, slim progress hairline (word count, %, time remaining), current-section label

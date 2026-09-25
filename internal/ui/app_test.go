@@ -3,8 +3,10 @@ package ui
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -308,4 +310,30 @@ func TestPanesRememberedDefaultClosed(t *testing.T) {
 func TestShowPasteDialogDoesNotCrash(t *testing.T) {
 	a, _ := newTestApp(t)
 	a.showPasteDialog()
+}
+
+func TestRarePausePrefAndGuard(t *testing.T) {
+	a, path := newTestApp(t)
+	if !a.player.RareWordPause {
+		t.Fatalf("rare pacing should default on for English")
+	}
+	// Gibberish opts out with a note.
+	a.setDocument(doc.FromText("t", gibberish(300)), "gib")
+	if a.player.RareWordPause {
+		t.Fatalf("gibberish should disable rare pacing")
+	}
+	if got := a.statusLabel.Text; !strings.Contains(got, "Rare-word pacing off") {
+		t.Fatalf("status = %q, want the guard note", got)
+	}
+	a.cancelTick()
+	_ = path
+}
+
+func gibberish(n int) string {
+	ws := make([]string, n)
+	for i := range ws {
+		// Digit-free invented words: the digit guard must not save them.
+		ws[i] = fmt.Sprintf("zxq%c%c", 'a'+byte(i%26), 'a'+byte(i/26%26))
+	}
+	return strings.Join(ws, " ")
 }
