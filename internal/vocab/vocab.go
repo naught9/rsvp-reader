@@ -23,8 +23,7 @@ var (
 // Zipf tiers for RarityBeats, calibrated to wordfreq's English scale
 // (the ≈ 5, plans; prizes ≈ 4, sparing ≈ 3, cryptology ≈ 1).
 const (
-	zipfCommon = 5.0
-	zipfKnown  = 3.0
+	zipfKnown = 3.0
 	// maxWordLen earns a length beat beyond this; digits never slow.
 	longWordLen = 10
 )
@@ -62,9 +61,10 @@ func ZipfOf(word string) (float32, bool) {
 }
 
 // RarityBeats is the extra display beats an unfamiliar word earns: 0 for
-// everyday words, 1 for uncommon ones, 2 for rare or invented words (and
-// a length beat for very long words). Guards: digits and hyphen-split
-// fragments' trailing marks never slow.
+// common and uncommon words, 2 for rare (Zipf below 3, roughly rarer than
+// once per million words) or invented words absent from the table — plus
+// a length beat for very long words. Guards: digits, abbreviation
+// remnants, and hyphen-split fragments' trailing marks never slow.
 func RarityBeats(word string) int {
 	load()
 	w := normalize(word)
@@ -77,8 +77,6 @@ func RarityBeats(word string) int {
 	beats := 0
 	if z, ok := zipfByW[w]; !ok || z < zipfKnown {
 		beats = 2
-	} else if z < zipfCommon {
-		beats = 1
 	}
 	if len([]rune(w)) > longWordLen {
 		beats++

@@ -11,8 +11,8 @@ func TestRarityBeats(t *testing.T) {
 	if got := RarityBeats("radio"); got != 0 {
 		t.Errorf("radio = %d, want 0", got)
 	}
-	if got := RarityBeats("prizes"); got != 1 {
-		t.Errorf("prizes = %d, want 1", got)
+	if got := RarityBeats("prizes"); got != 0 {
+		t.Errorf("prizes = %d, want 0", got)
 	}
 	// Invented words miss the table: the New Sun case.
 	for _, w := range []string{"fuligin", "cacogen", "Severian", "fuligin-", "FULIGIN"} {
